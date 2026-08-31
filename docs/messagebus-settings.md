@@ -29,10 +29,10 @@ INSTALLED_APPS += ["evennia_message_bus"]
 MESSAGEBUS_INSTANCE_ID = "instance-a"
 
 # 3. The bus database — shared by every instance that talks on it
-DATABASES["messagebus"] = {
-    "ENGINE": "django.db.backends.sqlite3",
-    "NAME": os.path.join(GAME_DIR, "server", "messagebus.db3"),
-}
+from evennia_message_bus.config import messagebus_database
+DATABASES["messagebus"] = messagebus_database(
+    os.path.join(GAME_DIR, "server", "messagebus.db3")
+)
 
 # 4. The router — append, never assign. See below.
 _BUS_ROUTER = "evennia_message_bus.db_router.MessageBusRouter"
@@ -94,13 +94,36 @@ ln -s ../../game-a/server/messagebus.db3 messagebus.db3
 The file does not exist yet — a symlink to a missing target is fine, and `migrate` creates the real
 file through it.
 
-**Deployed**, give each instance the same connection string instead:
-
-```python
-DATABASES["messagebus"] = dj_database_url.parse(os.environ["DATABASE_URL_MESSAGEBUS"])
-```
+**Deployed**, set `DATABASE_URL_MESSAGEBUS` to the same value on every instance. `messagebus_database`
+resolves it, so nothing in settings changes between local and deployed.
 
 Every instance keeps its own game database. Only the bus is shared.
+
+### How the database is resolved
+
+`messagebus_database()` takes the first of these it finds:
+
+| | Source | Meaning |
+|---|---|---|
+| 1 | `DATABASE_URL_MESSAGEBUS` | the bus has a database of its own |
+| 2 | `DATABASE_URL` | the bus shares the game's database |
+| 3 | the SQLite path you passed | a local file |
+
+**Rung 2 is right for some deployments and wrong for others**, and no instance can tell which. It is
+correct where instances already run against one Postgres — they land on the same database and share a
+bus. It is wrong where instances have databases of their own: each gets a private bus that works
+perfectly and reaches nobody.
+
+An instance reading its own settings sees an identical picture either way, so there is nothing to
+detect and nothing worth warning about. Instead the startup line says which rung it landed on:
+
+```
+[INFO] message bus started: instance 'game-a', bus db 'fcm_bus' on 'db.internal'
+       (from DATABASE_URL_MESSAGEBUS), polling every 0.5s, kinds registered: ...
+```
+
+Two instances that should share a bus are confirmed by reading two log lines. Only the database name
+and host are reported — never credentials.
 
 ## Migrating
 

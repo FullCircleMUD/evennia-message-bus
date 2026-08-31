@@ -84,6 +84,34 @@ Two structural notes that fall out of the cases below:
 | CF-04 | The check passes when the setting is a non-empty string | `ConfigTest.test_check_passes_when_setting_present` |
 | CF-05 | The raised message names `MESSAGEBUS_INSTANCE_ID` — a consumer must not have to guess | `ConfigTest.test_check_message_names_the_setting` |
 | CF-06 | `AppConfig.ready()` calls the check, so an unconfigured consumer cannot boot | `ConfigTest.test_app_ready_calls_the_check` |
+| CF-07 | `messagebus_database()` uses `DATABASE_URL_MESSAGEBUS` when it is set | `DatabaseResolverTest.test_uses_the_alias_specific_url` |
+| CF-08 | Falls back to `DATABASE_URL`, sharing the game's database | `DatabaseResolverTest.test_falls_back_to_the_game_database_url` |
+| CF-09 | Falls back to the given SQLite path when neither is set | `DatabaseResolverTest.test_falls_back_to_the_sqlite_path` |
+| CF-10 | `DATABASE_URL_MESSAGEBUS` wins when both are set | `DatabaseResolverTest.test_alias_specific_url_wins` |
+| CF-11 | `describe_bus_database()` names the database and reports it came from `DATABASE_URL_MESSAGEBUS` | `DatabaseDescriptionTest.test_names_the_alias_specific_source` |
+| CF-12 | Reports "shared with the game database" when the bus alias resolves to the same database as `default` | `DatabaseDescriptionTest.test_reports_a_shared_game_database` |
+| CF-13 | Reports a local file for SQLite | `DatabaseDescriptionTest.test_reports_a_local_file` |
+| CF-14 | The description never contains a password | `DatabaseDescriptionTest.test_never_reports_a_password` |
+| CF-15 | A SQLite path is reported resolved, so gamedirs sharing one file by symlink report the same database | `DatabaseDescriptionTest.test_sqlite_path_is_reported_resolved` |
+
+The resolver has three rungs — `DATABASE_URL_MESSAGEBUS`, then `DATABASE_URL`, then a local SQLite
+file — and every rung is legitimate. Rung two shares the game's database, which is right for a
+consumer whose instances already run against one Postgres, and wrong for instances with databases of
+their own: each would get a private bus that works perfectly and reaches nobody.
+
+No instance can tell the two apart. Resolving its own settings, it sees an identical picture either
+way — the difference exists only *across* instances, so there is nothing to detect locally and no
+warning worth emitting. CF-11..CF-13 are the answer instead: the startup line states which rung it
+landed on, so two instances that should share a bus are confirmed by reading two log lines rather than
+by reasoning about environment variables.
+
+CF-14 is not decoration. The description is written to a log file; `dj-database-url` parses
+credentials out of the URL, and only the database name and host may be reported.
+
+CF-15 is what makes the diagnostic work locally at all. Instances share a SQLite bus by symlinking one
+file into each gamedir, so each one's configured `NAME` is a different path to the same database.
+Reporting the configured path would print two different strings for one file — the opposite of what
+the line is for.
 
 ## RT — database placement
 
@@ -242,6 +270,7 @@ rejected would ping-pong between two instances forever.
 | LG-05 | The shim is a silent no-op outside an Evennia engine, so tests need no log directory | `LoggingTest.test_shim_is_a_no_op_outside_an_evennia_engine` |
 | LG-06 | Starting the loop logs at INFO, naming the instance id and the interval | `LoggingTest.test_start_logs_the_instance_and_interval` |
 | LG-07 | That startup line reaches `messagebus.log` itself — asserted through the shim rather than at the call site | `LoggingTest.test_start_line_reaches_the_log_file` |
+| LG-08 | The startup line names the resolved bus database and where it came from | `LoggingTest.test_start_line_names_the_bus_database` |
 
 LG-03 is the line that closes the common debug. Someone sends a message, nothing happens, and they
 look in their own log — it has to say "that peer has never heard of this kind", not just that

@@ -26,6 +26,10 @@ classifiers = [
 ]
 dependencies = [
     "evennia",
+    # Parses DATABASE_URL_MESSAGEBUS / DATABASE_URL into a DATABASES entry.
+    # The same parser FCM's own db_config.py uses, so a consumer's bus alias
+    # resolves exactly like every other alias they already run.
+    "dj-database-url",
 ]
 
 [project.optional-dependencies]

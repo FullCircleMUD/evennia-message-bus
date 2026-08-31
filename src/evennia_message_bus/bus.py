@@ -16,7 +16,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connections
 from django.utils import timezone
 
-from .config import check_instance_id, get_instance_id
+from .config import check_instance_id, describe_bus_database, get_instance_id
 from .db_router import BUS_ALIAS
 from .log import bus_log
 from .models import Message
@@ -190,7 +190,8 @@ def start_message_bus(interval: float = 0.5, clock=None):
     # timestamps it, so the line also anchors the bus in time against
     # server.log when reading back through a long log.
     bus_log(
-        f"message bus started: instance {instance!r}, polling every "
-        f"{interval}s, kinds registered: {', '.join(registered_kinds())}"
+        f"message bus started: instance {instance!r}, bus db "
+        f"{describe_bus_database()}, polling every {interval}s, "
+        f"kinds registered: {', '.join(registered_kinds())}"
     )
     return loop

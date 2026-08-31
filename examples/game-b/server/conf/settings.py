@@ -39,10 +39,10 @@ MESSAGEBUS_INSTANCE_ID = SERVERNAME
 INSTALLED_APPS += ["evennia_message_bus"]
 
 
-DATABASES["messagebus"] = {
-    "ENGINE": "django.db.backends.sqlite3",
-    "NAME": os.path.join(GAME_DIR, "server", "messagebus.db3"),
-}
+from evennia_message_bus.config import messagebus_database
+DATABASES["messagebus"] = messagebus_database(
+    os.path.join(GAME_DIR, "server", "messagebus.db3")
+)
 
 _BUS_ROUTER = "evennia_message_bus.db_router.MessageBusRouter"
 

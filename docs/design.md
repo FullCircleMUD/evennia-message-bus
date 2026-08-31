@@ -45,7 +45,17 @@ find the rows in `django_migrations` and no-op. Evennia passes `migrate` through
 deliberate command rather than running it at startup, so instances cannot race.
 
 **Sharing.** Locally, a symlink per gamedir back to one file — the same way FCM's view gamedirs reach a
-shared `archive.db3`. Deployed, each instance's settings name the same Postgres database.
+shared `archive.db3`. Deployed, every instance sets `DATABASE_URL_MESSAGEBUS` to the same value.
+
+**Resolution** follows the shape FCM's other aliases already use: `DATABASE_URL_MESSAGEBUS`, then
+`DATABASE_URL`, then a local SQLite file. Rung two shares the game's database — correct where
+instances already run against one Postgres, wrong where each has its own, since every instance would
+then get a private bus that reaches nobody.
+
+Nothing can be done about that locally. An instance reading its own settings sees an identical picture
+either way; the difference exists only *across* instances. So the resolver neither guesses nor warns,
+and the startup line states which rung it landed on instead — two logs side by side answer the
+question. Name and host only, never credentials.
 
 ## Instance identity
 

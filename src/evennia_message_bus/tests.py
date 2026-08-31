@@ -200,6 +200,111 @@ class ConfigTest(PlainTestCase):
         checked.assert_called_once()
 
 
+PG_BUS = "postgres://u:secret@db.internal:5432/fcm_bus"
+PG_GAME = "postgres://u:secret@db.internal:5432/fcm"
+SQLITE_PATH = "/tmp/messagebus.db3"
+
+
+class DatabaseResolverTest(PlainTestCase):
+    def resolve(self, **env):
+        with mock.patch.dict("os.environ", env, clear=True):
+            return config.messagebus_database(SQLITE_PATH)
+
+    def test_uses_the_alias_specific_url(self):
+        """CF-07"""
+        resolved = self.resolve(DATABASE_URL_MESSAGEBUS=PG_BUS)
+        self.assertEqual(resolved["NAME"], "fcm_bus")
+        self.assertIn("postgresql", resolved["ENGINE"])
+
+    def test_falls_back_to_the_game_database_url(self):
+        """CF-08"""
+        resolved = self.resolve(DATABASE_URL=PG_GAME)
+        self.assertEqual(resolved["NAME"], "fcm")
+
+    def test_falls_back_to_the_sqlite_path(self):
+        """CF-09"""
+        resolved = self.resolve()
+        self.assertEqual(resolved["NAME"], SQLITE_PATH)
+        self.assertIn("sqlite3", resolved["ENGINE"])
+
+    def test_alias_specific_url_wins(self):
+        """CF-10"""
+        resolved = self.resolve(
+            DATABASE_URL_MESSAGEBUS=PG_BUS, DATABASE_URL=PG_GAME
+        )
+        self.assertEqual(resolved["NAME"], "fcm_bus")
+
+
+class DatabaseDescriptionTest(PlainTestCase):
+    def describe(self, bus, default=None, **env):
+        # patch.dict rather than override_settings: Django warns that
+        # overriding DATABASES can behave unexpectedly, and this only needs
+        # the mapping the function reads.
+        databases = {"default": default or {}, "messagebus": bus}
+        with mock.patch.dict("os.environ", env, clear=True):
+            with mock.patch.dict(settings.DATABASES, databases, clear=True):
+                return config.describe_bus_database()
+
+    def test_names_the_alias_specific_source(self):
+        """CF-11"""
+        with mock.patch.dict(
+            "os.environ", {"DATABASE_URL_MESSAGEBUS": PG_BUS}, clear=True
+        ):
+            bus = config.messagebus_database(SQLITE_PATH)
+        described = self.describe(bus, DATABASE_URL_MESSAGEBUS=PG_BUS)
+        self.assertIn("fcm_bus", described)
+        self.assertIn("db.internal", described)
+        self.assertIn("DATABASE_URL_MESSAGEBUS", described)
+
+    def test_reports_a_shared_game_database(self):
+        """CF-12"""
+        shared = {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": "fcm",
+            "HOST": "db.internal",
+            "PORT": "5432",
+        }
+        described = self.describe(dict(shared), default=dict(shared))
+        self.assertIn("fcm", described)
+        self.assertIn("shared with the game database", described)
+
+    def test_reports_a_local_file(self):
+        """CF-13"""
+        described = self.describe(
+            {"ENGINE": "django.db.backends.sqlite3", "NAME": SQLITE_PATH}
+        )
+        self.assertIn(SQLITE_PATH, described)
+        self.assertIn("local file", described)
+
+    def test_sqlite_path_is_reported_resolved(self):
+        """CF-15"""
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            real = os.path.join(tmp, "messagebus.db3")
+            open(real, "w").close()
+            link = os.path.join(tmp, "link.db3")
+            os.symlink(real, link)
+
+            engine = "django.db.backends.sqlite3"
+            via_real = self.describe({"ENGINE": engine, "NAME": real})
+            via_link = self.describe({"ENGINE": engine, "NAME": link})
+
+        self.assertEqual(via_real, via_link)
+        self.assertNotIn("link.db3", via_link)
+
+    def test_never_reports_a_password(self):
+        """CF-14"""
+        with mock.patch.dict(
+            "os.environ", {"DATABASE_URL_MESSAGEBUS": PG_BUS}, clear=True
+        ):
+            bus = config.messagebus_database(SQLITE_PATH)
+        self.assertEqual(bus["PASSWORD"], "secret")
+        described = self.describe(bus, DATABASE_URL_MESSAGEBUS=PG_BUS)
+        self.assertNotIn("secret", described)
+
+
 # --------------------------------------------------------------------------
 # RT — database placement
 # --------------------------------------------------------------------------
@@ -844,6 +949,19 @@ class LoggingTest(BusTestCase):
         ]
         self.assertTrue(matching, f"startup line never reached the log: {written}")
         self.assertIn("[INFO]", matching[0])
+
+    def test_start_line_names_the_bus_database(self):
+        """LG-08"""
+        with mock.patch(
+            "evennia_message_bus.bus.describe_bus_database",
+            return_value="'fcm_bus' on 'db.internal' (from DATABASE_URL_MESSAGEBUS)",
+        ):
+            with mock.patch("evennia_message_bus.bus.bus_log") as logged:
+                loop = bus.start_message_bus(interval=0.5, clock=Clock())
+                self.addCleanup(lambda: loop.running and loop.stop())
+        emitted = " ".join(str(call) for call in logged.call_args_list)
+        self.assertIn("fcm_bus", emitted)
+        self.assertIn("DATABASE_URL_MESSAGEBUS", emitted)
 
 
 # --------------------------------------------------------------------------
