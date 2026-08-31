@@ -3,6 +3,27 @@
 Reverse-chronological milestone log. Newest first. Each entry states what became true and what proves
 it.
 
+## 2026-08-31 — The bus database resolves from the environment
+
+`messagebus_database()` takes the first of `DATABASE_URL_MESSAGEBUS`, `DATABASE_URL`, or a local
+SQLite path — the same shape as FCM's other aliases, so settings do not change between local and
+deployed.
+
+Rung two shares the game's database, which is right for instances already running against one
+Postgres and wrong for instances with their own. No instance can tell those apart from its own
+settings, so the resolver neither guesses nor warns; the startup line reports which rung it landed on
+instead, and two logs side by side answer the question.
+
+**What proves it**
+
+CF-07..CF-15 cover the chain, its precedence, and the description. Both demo gamedirs use the resolver
+and report the same resolved path, which they did not before — a SQLite bus is shared by symlink, so
+the configured paths differ and only the resolved one is comparable.
+
+**What is not proven**
+
+Rungs one and two have never run against a real PostgreSQL. Everything so far is rung three.
+
 ## 2026-08-31 — Round trip between two live instances
 
 Two Evennia instances, each with its own game database, exchanging messages through one shared bus.
