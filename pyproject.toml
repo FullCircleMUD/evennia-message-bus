@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "evennia-message-bus"
+version = "0.0.1"
+description = "Lets separate Evennia instances send messages to each other through a shared database."
+readme = "README.md"
+license = {text = "BSD-3-Clause"}
+authors = [{name = "Tim Baird"}]
+requires-python = ">=3.10"
+keywords = ["evennia", "mud", "message-bus", "messaging", "multi-instance"]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Games/Entertainment :: Multi-User Dungeons (MUD)",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "evennia",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build",
+    "twine",
+]
+
+[project.urls]
+Homepage = "https://github.com/FullCircleMUD/evennia-message-bus"
+Repository = "https://github.com/FullCircleMUD/evennia-message-bus"
+Issues = "https://github.com/FullCircleMUD/evennia-message-bus/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["evennia_message_bus*"]
