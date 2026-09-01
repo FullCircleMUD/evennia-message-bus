@@ -336,7 +336,13 @@ class RouterTest(BusTestCase):
     def test_allow_migrate_none_for_a_foreign_app(self):
         """RT-05"""
         self.assertIsNone(MessageBusRouter().allow_migrate("default", "objects"))
-        self.assertIsNone(MessageBusRouter().allow_migrate(BUS_ALIAS, "objects"))
+        self.assertIsNone(MessageBusRouter().allow_migrate("archive", "objects"))
+
+    def test_allow_migrate_false_for_a_foreign_app_on_the_bus_alias(self):
+        """RT-07"""
+        self.assertIs(
+            MessageBusRouter().allow_migrate(BUS_ALIAS, "objects"), False
+        )
 
     def test_db_for_read_and_write_none_for_a_foreign_model(self):
         """RT-06"""

@@ -15,6 +15,12 @@ queries and sends them to the wrong database.
 bus table out of each instance's own game database. Without it, a plain
 ``evennia migrate`` creates the table locally and every instance polls a
 private bus that works perfectly and reaches nobody.
+
+It refuses the mirror case too — a foreign app on the bus alias. The bus
+database holds one table, and ``migrate --database=messagebus`` would
+otherwise find no objection to Evennia's own apps and clone the whole game
+schema into it. Declining work on our own alias is safe in a way answering
+for a foreign app elsewhere would not be.
 """
 
 APP_LABEL = "evennia_message_bus"
@@ -43,5 +49,9 @@ class MessageBusRouter:
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
         if app_label != APP_LABEL:
-            return None
+            # Refuse a foreign app on our own alias; express no opinion
+            # anywhere else. Declining work on our alias is safe; answering
+            # for a foreign app on someone else's alias would capture their
+            # router's decision.
+            return False if db == BUS_ALIAS else None
         return db == BUS_ALIAS

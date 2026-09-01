@@ -121,12 +121,24 @@ the line is for.
 | RT-02 | A `Message` read comes from the bus alias | `RouterTest.test_read_comes_from_the_bus_alias` |
 | RT-03 | `allow_migrate` is `True` for this app on the bus alias | `RouterTest.test_allow_migrate_true_on_the_bus_alias` |
 | RT-04 | `allow_migrate` is `False` for this app on `default` — the table must not appear in the game database | `RouterTest.test_allow_migrate_false_on_default` |
-| RT-05 | `allow_migrate` returns `None` for a foreign app | `RouterTest.test_allow_migrate_none_for_a_foreign_app` |
+| RT-05 | `allow_migrate` returns `None` for a foreign app on a foreign alias | `RouterTest.test_allow_migrate_none_for_a_foreign_app` |
 | RT-06 | `db_for_read` / `db_for_write` return `None` for a foreign model | `RouterTest.test_db_for_read_and_write_none_for_a_foreign_model` |
+| RT-07 | `allow_migrate` is `False` for a foreign app on the bus alias — the bus database holds the bus table, not a game schema | `RouterTest.test_allow_migrate_false_for_a_foreign_app_on_the_bus_alias` |
 
 RT-04 is the case that matters most operationally. Get it wrong and a plain `evennia migrate` creates
 the bus table inside each instance's own game database — every instance then polls a private bus that
 works perfectly and reaches nobody.
+
+RT-07 is RT-04's mirror, and the reason the two are separate cases. RT-04 keeps our table out of other
+databases; RT-07 keeps other tables out of ours. Without it, `migrate --database=messagebus` finds no
+objection to Evennia's own apps and clones the entire game schema — 42 tables — into what should hold
+one. Not breakage, but it makes the bus database unreadable at a glance: anyone opening it to debug
+sees `objectdb` and `accountdb` sitting there and cannot tell whether instances are sharing game state
+through it.
+
+The asymmetry with RT-05 is the point. Declining a foreign app on *our* alias refuses work; answering
+for a foreign app on *another* alias would capture another router's decision. The first is safe, the
+second is the failure the module docstring warns about.
 
 RT-05 and RT-06 are the constraint `evennia-ai-memory` documents in its `interoperability.md`: a
 consumer can have several library routers in `DATABASE_ROUTERS` at once, and a router that answers for
