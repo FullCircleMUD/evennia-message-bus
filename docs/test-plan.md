@@ -63,7 +63,7 @@ and the library's own router, mirroring a real consumer install.
 | `AlwaysHandle` / `AlwaysDefer` / `Raising` / `Unimplemented` | Fixed outcomes: `True`, `False`, an arbitrary exception, and the base `NotImplementedError` |
 | `override_settings` | `MESSAGEBUS_INSTANCE_ID`, per test |
 | Direct `created_at` writes | Ageing a message past its timeout. Tests must not sleep; they set the timestamp |
-| A captured log sink | Asserting the `LG` cases without writing to a real log directory |
+| `clear_logs` / `read_back_logs` | LG-07 asserts delivery, so it reads the real `LOG_DIR` the test settings point at. Files are **truncated, never removed** — Evennia caches the handle after the first write, and deleting the file leaves it appending to an unlinked inode |
 | `twisted.internet.task.Clock` | Driving `LoopingCall` without a live reactor |
 
 Two structural notes that fall out of the cases below:
@@ -275,19 +275,16 @@ rejected would ping-pong between two instances forever.
 
 | ID | Case | Test function |
 |---|---|---|
-| LG-01 | Lines go to the library's own `messagebus.log`, not Evennia's main log | `LoggingTest.test_lines_go_to_the_libraries_own_log_file` |
 | LG-02 | Receiving an unknown kind logs a warning naming the kind and the sender | `LoggingTest.test_unknown_kind_logs_the_kind_and_the_sender` |
 | LG-03 | Receiving an `unknown_kind` reply logs a warning naming the kind and the peer that rejected it | `LoggingTest.test_unknown_kind_reply_logs_the_kind_and_the_peer` |
 | LG-04 | A handler exception logs at ERROR with the traceback attached | `LoggingTest.test_handler_exception_logs_at_error_with_a_traceback` |
-| LG-05 | The shim is a silent no-op outside an Evennia engine, so tests need no log directory | `LoggingTest.test_shim_is_a_no_op_outside_an_evennia_engine` |
 | LG-06 | Starting the loop logs at INFO, naming the instance id and the interval | `LoggingTest.test_start_logs_the_instance_and_interval` |
-| LG-07 | That startup line reaches `messagebus.log` itself — asserted through the shim rather than at the call site | `LoggingTest.test_start_line_reaches_the_log_file` |
+| LG-07 | That startup line reaches `messagebus.log` itself — read back from the file, not asserted at the call site | `LoggingTest.test_start_line_reaches_the_log_file` |
 | LG-08 | The startup line names the resolved bus database and where it came from | `LoggingTest.test_start_line_names_the_bus_database` |
 
 LG-03 is the line that closes the common debug. Someone sends a message, nothing happens, and they
 look in their own log — it has to say "that peer has never heard of this kind", not just that
-something failed. The pattern is `evennia-shards`' `log.py`; its `trace=True` parameter exists for
-exactly LG-04.
+something failed. `bus_log`'s `trace=True` parameter exists for exactly LG-04.
 
 LG-06 exists because every other line here is written when something goes wrong, which leaves an empty
 `messagebus.log` meaning either "running fine, nothing notable" or "never started". Those are not the
@@ -296,12 +293,13 @@ something, and puts the instance id in writing — the value that is worst to di
 instances accidentally share it.
 
 LG-07 is the same behaviour asserted one layer down. LG-06 patches `bus_log`, so it proves the call is
-made with the right content and nothing about whether it lands anywhere; LG-07 patches Evennia's
-`log_file` instead, so the line has to travel through the shim to pass. The pair is deliberate: the
+made with the right content and nothing about whether it lands anywhere; LG-07 reads `messagebus.log`
+back off disk, so the line has to survive the whole delivery path to pass. The pair is deliberate: the
 startup line's whole value is being *in the file*, and a test that stops at the call site would let a
-broken shim keep passing.
+broken binding keep passing. It is also what fixes the filename in a test — a `make_logger` bind
+pointed at the wrong file fails here and nowhere else.
 
-Lines carry no timestamp of their own. Evennia's `log_file` already prefixes every line with one, in
+Lines carry no timestamp of their own. `evennia-logging-extension` prefixes every line with one, in
 UTC, matching `server.log` — so a bus line and a server line read against each other with no offset,
 and adding our own would stamp every line twice.
 

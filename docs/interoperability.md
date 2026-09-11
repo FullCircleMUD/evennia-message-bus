@@ -30,6 +30,12 @@ definitely has two in the list. Documented once, in ai-memory's file, so the pai
 Beyond that: archive's second database is a schema clone of the game; this library's is a small table
 of its own. Separate aliases, no rows in common, neither reads the other's.
 
+## evennia-logging-extension
+
+**Hard dependency.** `log.py` binds `bus_log` through its `make_logger`, and every line the library
+emits goes through that binding to `messagebus.log`. The library does not run without it —
+`pyproject.toml` declares it. Nothing flows the other way: the extension knows nothing about the bus.
+
 ## evennia-message-bus
 
 This library.

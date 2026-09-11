@@ -126,7 +126,7 @@ evennia-message-bus/
 │       ├── registry.py        # register / get_type
 │       ├── types.py           # MessageType + the library-shipped types
 │       ├── bus.py             # poll / delete / process_inbox / start_message_bus
-│       ├── log.py             # messagebus.log shim
+│       ├── log.py             # bus_log — the make_logger binding
 │       ├── errors.py          # MessageBusError
 │       ├── migrations/
 │       └── tests.py           # unit tests (run via runtests.py)

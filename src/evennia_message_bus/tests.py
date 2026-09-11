@@ -8,6 +8,7 @@ is written to pass them.
 Run via ``python runtests.py`` from the library root.
 """
 import json
+import os
 from unittest import TestCase as PlainTestCase
 from unittest import mock
 
@@ -111,6 +112,29 @@ class SelfAddressable(MessageType):
 
     def handle(self, message):
         return True
+
+
+def clear_logs():
+    """Empty LOG_DIR's files so a line read back was written by this test.
+
+    Truncated, never removed: Evennia's ``_open_log_file`` caches the handle
+    after the first write, and removing the file leaves that handle appending
+    to an unlinked inode — every later line silently vanishes. An append-mode
+    handle seeks to the end on each write, so a truncated file stays live.
+    """
+    for name in os.listdir(settings.LOG_DIR):
+        if name.endswith(".log"):
+            with open(os.path.join(settings.LOG_DIR, name), "w"):
+                pass
+
+
+def read_back_log(filename):
+    """Everything written to one file under LOG_DIR, or "" if it is absent."""
+    path = os.path.join(settings.LOG_DIR, filename)
+    if not os.path.exists(path):
+        return ""
+    with open(path) as handle:
+        return handle.read()
 
 
 class BusTestCase(TestCase):
@@ -878,14 +902,6 @@ class ProcessInboxTest(BusTestCase):
 
 
 class LoggingTest(BusTestCase):
-    def test_lines_go_to_the_libraries_own_log_file(self):
-        """LG-01"""
-        from evennia_message_bus import log
-
-        with mock.patch("evennia.utils.logger.log_file") as log_file:
-            log.bus_log("hello")
-        self.assertEqual(log_file.call_args.kwargs["filename"], "messagebus.log")
-
     def test_unknown_kind_logs_the_kind_and_the_sender(self):
         """LG-02"""
         self.make("nobody_handles_this", from_instance=PEER_ID)
@@ -917,13 +933,6 @@ class LoggingTest(BusTestCase):
             )
         )
 
-    def test_shim_is_a_no_op_outside_an_evennia_engine(self):
-        """LG-05"""
-        from evennia_message_bus import log
-
-        with mock.patch.dict("sys.modules", {"evennia.utils.logger": None}):
-            log.bus_log("this must not raise")
-
     def test_start_logs_the_instance_and_interval(self):
         """LG-06"""
         with mock.patch("evennia_message_bus.bus.bus_log") as logged:
@@ -941,20 +950,12 @@ class LoggingTest(BusTestCase):
 
     def test_start_line_reaches_the_log_file(self):
         """LG-07"""
-        with mock.patch("evennia.utils.logger.log_file") as log_file:
-            loop = bus.start_message_bus(interval=0.5, clock=Clock())
-            self.addCleanup(lambda: loop.running and loop.stop())
-        written = [
-            (call.args[0] if call.args else "", call.kwargs.get("filename"))
-            for call in log_file.call_args_list
-        ]
-        matching = [
-            line
-            for line, filename in written
-            if filename == "messagebus.log" and SELF_ID in line
-        ]
-        self.assertTrue(matching, f"startup line never reached the log: {written}")
-        self.assertIn("[INFO]", matching[0])
+        clear_logs()
+        loop = bus.start_message_bus(interval=0.5, clock=Clock())
+        self.addCleanup(lambda: loop.running and loop.stop())
+        written = read_back_log("messagebus.log")
+        self.assertIn(SELF_ID, written)
+        self.assertIn("[INFO]", written)
 
     def test_start_line_names_the_bus_database(self):
         """LG-08"""

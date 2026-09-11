@@ -26,6 +26,9 @@ classifiers = [
 ]
 dependencies = [
     "evennia",
+    # Binds bus_log in log.py. Not on PyPI — install the sibling checkout
+    # editable into any venv that runs this library.
+    "evennia-logging-extension",
     # Parses DATABASE_URL_MESSAGEBUS / DATABASE_URL into a DATABASES entry.
     # The same parser FCM's own db_config.py uses, so a consumer's bus alias
     # resolves exactly like every other alias they already run.
