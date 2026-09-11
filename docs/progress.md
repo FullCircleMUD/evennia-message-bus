@@ -3,6 +3,35 @@
 Reverse-chronological milestone log. Newest first. Each entry states what became true and what proves
 it.
 
+## 2026-09-11 — Logging binds through evennia-logging-extension
+
+`log.py` is the standard three-line binding: `bus_log = make_logger("messagebus.log")`. The bound name
+and the filename are unchanged, so no call site moved. The extension is a hard dependency and is not
+on PyPI — it needs an editable install from the sibling checkout in any venv that runs the library,
+which `examples/requirements.txt` now does.
+
+What the library gains is the pre-reactor window. The extension writes synchronously when there is no
+reactor and hands to Evennia when there is one, so a line is no longer lost for being emitted too
+early. Nothing in the library logs there yet.
+
+**What proves it**
+
+The suite: 107 tests. LG-07 now reads `messagebus.log` back off disk rather than mocking Evennia's
+`log_file` — a mocked call site would have passed against a binding pointed at the wrong file.
+
+`examples/game-a`, booted on a truncated log directory:
+
+- One startup line, one timestamp, Evennia's format. `start_message_bus` runs in `at_server_start`,
+  so the Server process writes it and the launcher and Portal do not.
+- `bus_log(..., level="WARN")` and `bus_log(..., level="ERROR", trace=True)` in-game both landed, the
+  second with the `ZeroDivisionError` traceback attached.
+- No `pre-startup.log` and no other stray in `server/logs/`.
+
+**Retired cases**
+
+LG-01 and LG-05 asserted the old shim's own behaviour and are gone. LG-01's claim — lines reach the
+library's own file — is what LG-07's read-back now proves.
+
 ## 2026-08-31 — The bus database resolves from the environment
 
 `messagebus_database()` takes the first of `DATABASE_URL_MESSAGEBUS`, `DATABASE_URL`, or a local
