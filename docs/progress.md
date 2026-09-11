@@ -29,9 +29,24 @@ The reasons are in the test plan's `LG` prose so they read as decisions rather t
 LG-09 to LG-18, all reading `messagebus.log` back off disk — none mock `bus_log`, because a mocked
 call site would let a binding pointed at the wrong file keep passing. 112 tests pass.
 
+Proven live on `examples/game-a`, on SQLite. The boot refusal for a blank `MESSAGEBUS_INSTANCE_ID`
+and for an unset one both landed in `messagebus.log` with the two states distinguished, and no
+`pre-startup.log` appeared — so the line is written after `LOG_DIR` is known, outside the window
+where the logging extension loses lines in the twistd children. The three registry refusals, the
+self-addressed send and the timeout-with-a-return-address all landed with a reactor up, which is the
+deferred delivery path the suite cannot reach.
+
 LG-12 (no password in the refusal line) was mutation-tested both ways: leaking the whole `DATABASES`
 entry fails it on the password, and removing the log call fails it on the guard that requires a line
 to exist at all. It had passed vacuously against an empty file before that guard was added.
+
+**What is not proven**
+
+`check_bus_database()` has never fired outside the suite. On SQLite it cannot: `evennia-database-cascade`
+refuses an alias resolving to the game's own database file first, at settings time, and records it in
+`cascade.log`. That check is SQLite-only by design — a Postgres `default` has no file to collide with —
+so this library's identity comparison is what covers the Postgres case, and only a Postgres pair can
+exercise it. The two layers are complementary, not duplicates: do not delete one on reading the other.
 
 ## 2026-09-11 — The database is declared to evennia-database-cascade
 
