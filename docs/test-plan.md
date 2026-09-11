@@ -282,6 +282,47 @@ rejected would ping-pong between two instances forever.
 | LG-06 | Starting the loop logs at INFO, naming the instance id and the interval | `LoggingTest.test_start_logs_the_instance_and_interval` |
 | LG-07 | That startup line reaches `messagebus.log` itself — read back from the file, not asserted at the call site | `LoggingTest.test_start_line_reaches_the_log_file` |
 | LG-08 | The startup line names the resolved bus database and where it came from | `LoggingTest.test_start_line_names_the_bus_database` |
+| LG-09 | The boot refusal for a missing `MESSAGEBUS_INSTANCE_ID` logs at ERROR before it raises, and the line reaches `messagebus.log` | `RefusalLoggingTest.test_missing_instance_id_refusal_logs_at_error` |
+| LG-10 | That line carries the exception's own text, and distinguishes an unset setting from one set to a blank string | `RefusalLoggingTest.test_instance_id_refusal_line_matches_the_exception` |
+| LG-11 | The boot refusal for a bus alias on the game's own database logs at ERROR before it raises, naming the alias and both databases | `RefusalLoggingTest.test_bus_on_the_game_database_refusal_logs_at_error` |
+| LG-12 | That line never contains a password | `RefusalLoggingTest.test_bus_database_refusal_never_logs_a_password` |
+| LG-13 | `start_message_bus()` refusing an unmigrated bus table logs at ERROR before it raises, naming the alias and the migrate command | `RefusalLoggingTest.test_unmigrated_table_refusal_logs_at_error` |
+| LG-14 | `register()` refusing a class that is not a `MessageType` logs at ERROR before it raises, naming the class | `RefusalLoggingTest.test_non_message_type_refusal_logs_at_error` |
+| LG-15 | `register()` refusing a type that declares no `kind` logs at ERROR before it raises, naming the class | `RefusalLoggingTest.test_missing_kind_refusal_logs_at_error` |
+| LG-16 | `register()` refusing a kind clash logs at ERROR before it raises, naming the kind, the type already holding it, and the one refused | `RefusalLoggingTest.test_kind_clash_refusal_logs_at_error` |
+| LG-17 | A message that times out *with* a usable return address logs at WARN, naming the pk, the kind, the peer replied to, and its age against the type's timeout | `RefusalLoggingTest.test_timeout_with_a_return_address_logs_at_warn` |
+| LG-18 | `send()` refusing a self-addressed message logs at ERROR before it raises, naming the instance id and the shared-id misconfiguration it usually means | `RefusalLoggingTest.test_self_addressed_send_refusal_logs_at_error` |
+
+LG-09 to LG-18 are one shape: **every refusal logs before its raise**, at ERROR, with the log line
+and the exception carrying the same text — built once, logged, then raised. A reader who has the
+traceback learns nothing new from the log, and a reader who has only the log is not worse off. The
+log function is imported lazily inside the branch, never at `config.py` module scope, because
+`log.py` may import `config.py` and two module-scope imports would close the cycle.
+
+All ten assert delivery by reading `messagebus.log` back off disk. Asserting at the call site would
+let a broken binding pass, which is the failure LG-07 exists to catch and the reason these do not
+mock `bus_log`.
+
+**The boot refusals land in the right file.** LG-09 and LG-11 run from `AppConfig.ready()`, during
+`django.setup()` — after the settings module has finished executing, so `LOG_DIR` is known and the
+lines go to `messagebus.log` rather than `pre-startup.log`. That also puts them outside the window
+where the logging extension is known to lose lines in the twistd children.
+
+LG-12 is CF-14's rule on a second channel. `check_bus_database()` compares two resolved `DATABASES`
+entries, and those hold credentials parsed out of a URL — so the refusal reports engine, name and
+host only, exactly as the startup line does.
+
+LG-17 closes the gap the timeout path left. A message that times out with a return address replies
+`undeliverable_reply` and is deleted, and the *sender* logs the reply — but nothing is written on the
+side that gave up. Reading the receiving instance's log, a message that was abandoned is
+indistinguishable from one that never arrived.
+
+LG-18 is deliberately the only `send()` refusal that logs. The other four — no `kind`, a blank
+destination, missing payload keys, an unserialisable payload — are call-site errors whose traceback
+reaches the developer immediately, and a send refused inside a handler is already logged with its
+full traceback by LG-04's path; logging both would record one failure twice per poll until the
+message times out. The self-addressed refusal is different: two instances sharing an id is the
+failure that presents as nothing at all, and it is worth a line even when the raise is caught.
 
 LG-03 is the line that closes the common debug. Someone sends a message, nothing happens, and they
 look in their own log — it has to say "that peer has never heard of this kind", not just that

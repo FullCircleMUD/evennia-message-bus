@@ -3,6 +3,36 @@
 Reverse-chronological milestone log. Newest first. Each entry states what became true and what proves
 it.
 
+## 2026-09-11 — Every refusal logs before it raises
+
+Ten sites that used to raise silently now write to `messagebus.log` first. The boot refusals — a
+missing or blank `MESSAGEBUS_INSTANCE_ID`, and a bus alias resolving to the game's own database —
+plus the unmigrated-bus-table refusal, the three registration refusals, and the self-addressed
+`send()`. Each logs at ERROR with the exception's own text, built once and used in both channels.
+
+Two are behaviour changes rather than narration. `check_instance_id()` now distinguishes an unset
+setting from one set to a blank string, since a blank one is usually an environment variable that
+did not expand. And a message that times out **with** a return address now logs at WARN on the side
+that gave it up — it replies `undeliverable_reply` and deletes, so the sender recorded the outcome
+but the receiver's own log showed nothing, making an abandoned message indistinguishable from one
+that never arrived.
+
+The line carries what a diagnosis needs: pk, kind, peer, age against the type's timeout, the alias,
+the class already holding a kind and the one refused. Never credentials — `check_bus_database()`
+reports name and host only, which is CF-14's rule on a second channel.
+
+Four of the five `send()` refusals stay silent, as do `poll`, `delete` and `_reply`'s guarded skips.
+The reasons are in the test plan's `LG` prose so they read as decisions rather than gaps.
+
+**What proves it**
+
+LG-09 to LG-18, all reading `messagebus.log` back off disk — none mock `bus_log`, because a mocked
+call site would let a binding pointed at the wrong file keep passing. 112 tests pass.
+
+LG-12 (no password in the refusal line) was mutation-tested both ways: leaking the whole `DATABASES`
+entry fails it on the password, and removing the log call fails it on the guard that requires a line
+to exist at all. It had passed vacuously against an empty file before that guard was added.
+
 ## 2026-09-11 — The database is declared to evennia-database-cascade
 
 `db_spec.py` carries the `AliasSpec`; the cascade derives the `DATABASES` entry, the router and the

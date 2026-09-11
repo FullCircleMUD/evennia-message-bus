@@ -33,6 +33,22 @@ SETTING_NAME = "MESSAGEBUS_INSTANCE_ID"
 BUS_ALIAS = "messagebus"
 
 
+def _log_refusal(message: str) -> None:
+    """Write a refusal to the log before its raise, at ERROR.
+
+    The log line and the exception carry the same text: a reader who has the
+    traceback learns nothing new from the log, and a reader who has only the
+    log is not worse off.
+
+    The import is deliberately inside the function. ``log.py`` may import this
+    module for a settable filename, and a module-scope import here would close
+    that cycle on declaration order.
+    """
+    from .log import bus_log
+
+    bus_log(message, level="ERROR")
+
+
 def get_instance_id() -> str | None:
     """Return this instance's bus identity, or ``None`` if unset."""
     from django.conf import settings
@@ -48,14 +64,24 @@ def check_instance_id() -> str:
     say which setting, because there is nothing else to go on.
     """
     value = get_instance_id()
-    if not value or not str(value).strip():
-        raise ImproperlyConfigured(
-            f"{SETTING_NAME} is not set. evennia-message-bus needs a name for "
+    if value is None or not str(value).strip():
+        # Unset and blank are different mistakes — a blank one is usually an
+        # environment variable that did not expand — and a reader who has only
+        # the log needs to be able to tell them apart.
+        state = (
+            "is not set"
+            if value is None
+            else f"is set to {value!r}, which is blank"
+        )
+        message = (
+            f"{SETTING_NAME} {state}. evennia-message-bus needs a name for "
             f"this instance so peers can address messages to it. Set "
             f"{SETTING_NAME} in your settings to a string unique across every "
             f"instance sharing the bus database. A sharded consumer can set "
             f"{SETTING_NAME} = SHARD_ID."
         )
+        _log_refusal(message)
+        raise ImproperlyConfigured(message)
     return str(value)
 
 
@@ -98,13 +124,21 @@ def check_bus_database() -> None:
         return
 
     if _database_identity(bus) == _database_identity(default):
-        raise ImproperlyConfigured(
-            f"the {BUS_ALIAS!r} database is the game's own database. The bus "
-            f"is the transport between instances, so it must not live inside "
-            f"any one instance's database. Point DATABASE_URL_MESSAGEBUS at a "
-            f"database of its own, or unset it to fall back to a local "
-            f"messagebus.db3 file."
+        # Name and host only. This entry holds credentials parsed out of a
+        # URL and the message goes to a log file — the CF-14 rule, on a
+        # second channel.
+        name = bus.get("NAME") or "?"
+        host = bus.get("HOST")
+        where = f"{name!r} on {host!r}" if host else f"{name!r}"
+        message = (
+            f"the {BUS_ALIAS!r} database is the game's own database ({where}). "
+            f"The bus is the transport between instances, so it must not live "
+            f"inside any one instance's database. Point "
+            f"DATABASE_URL_MESSAGEBUS at a database of its own, or unset it to "
+            f"fall back to a local messagebus.db3 file."
         )
+        _log_refusal(message)
+        raise ImproperlyConfigured(message)
 
 
 def describe_bus_database() -> str:

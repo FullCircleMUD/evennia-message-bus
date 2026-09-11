@@ -59,6 +59,14 @@ Every implementation decision must respect them.
 7. **Test-first.** A case lands in [docs/test-plan.md](docs/test-plan.md), then a test, then the code.
    The linter errors on a test the plan does not name, and on a plan entry naming a test that does not
    exist.
+8. **The log is for diagnosis, not for narration.** `log.py` binds `bus_log` through
+   `evennia-logging-extension`. One INFO line on the way up so an empty file means something; after
+   that, the file is faults only — refusals, handler exceptions, timeouts, and messages a peer would
+   not take. **Every refusal logs at ERROR before it raises**, the log line and the exception carrying
+   the same text, built once. Detail is the point: identifiers, kinds, peers, ages against timeouts —
+   never credentials. Hot paths (`poll`, `delete`) and call-site errors whose traceback reaches the
+   developer immediately stay silent; the exceptions are recorded in the test plan's `LG` prose so
+   they do not read as gaps.
 
 ## Out of scope
 

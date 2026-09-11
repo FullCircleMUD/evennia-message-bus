@@ -95,7 +95,11 @@ class MessageType:
 
         sender = from_instance if from_instance is not None else get_instance_id()
         if to_instance == sender and not cls.can_address_self:
-            raise MessageBusError(
+            # The only send refusal that logs. The rest are call-site errors
+            # whose traceback reaches the developer immediately; this one is
+            # the canary for two instances sharing an id, which otherwise
+            # presents as nothing at all.
+            message = (
                 f"{cls.__name__} refused to send to {to_instance!r}, which is "
                 f"this instance's own MESSAGEBUS_INSTANCE_ID. If two instances "
                 f"are configured with the same MESSAGEBUS_INSTANCE_ID, that is "
@@ -103,6 +107,8 @@ class MessageType:
                 f"type genuinely means to address itself, set "
                 f"can_address_self = True on it."
             )
+            bus_log(message, level="ERROR")
+            raise MessageBusError(message)
 
         payload = {} if payload is None else payload
         missing = [key for key in cls.payload_keys if key not in payload]

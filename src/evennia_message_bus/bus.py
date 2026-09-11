@@ -132,6 +132,16 @@ def process_inbox() -> int:
             continue
 
         if message.from_instance and message.from_instance != get_instance_id():
+            # Logged on this side too. The sender records the reply it gets,
+            # but without this line a message we gave up on is
+            # indistinguishable, in our own log, from one that never arrived.
+            bus_log(
+                f"message pk={message.pk} kind={message.kind!r} from "
+                f"{message.from_instance!r} timed out after {age:.1f}s against "
+                f"a {cls.timeout}s timeout; replying undeliverable and "
+                f"dropping it",
+                level="WARN",
+            )
             _reply(
                 UndeliverableReply,
                 message,
@@ -177,11 +187,14 @@ def start_message_bus(interval: float = 0.5, clock=None):
 
     instance = check_instance_id()
     if not bus_table_exists():
-        raise ImproperlyConfigured(
+        message = (
             f"the bus table is missing from the {BUS_ALIAS!r} database. Run "
-            f"`evennia migrate --database={BUS_ALIAS}` before starting the "
+            f"`evennia cascade_migrate`, or "
+            f"`evennia migrate --database={BUS_ALIAS}`, before starting the "
             f"message bus."
         )
+        bus_log(message, level="ERROR")
+        raise ImproperlyConfigured(message)
 
     loop = LoopingCall(_tick)
     if clock is not None:

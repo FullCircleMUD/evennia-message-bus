@@ -977,6 +977,161 @@ class LoggingTest(BusTestCase):
         self.assertIn("DATABASE_URL_MESSAGEBUS", emitted)
 
 
+class RefusalLoggingTest(BusTestCase):
+    """LG-09..LG-18 — every refusal logs before its raise.
+
+    All of these read ``messagebus.log`` back off disk. Asserting at the call
+    site would let a binding pointed at the wrong file keep passing, which is
+    the failure LG-07 exists to catch.
+    """
+
+    def refuse(self, call, *args, **kwargs):
+        """Run a refusal, return (exception text, what reached the log)."""
+        clear_logs()
+        with self.assertRaises(Exception) as ctx:
+            call(*args, **kwargs)
+        return str(ctx.exception), read_back_log("messagebus.log")
+
+    # -- LG-09 / LG-10: the instance-id boot refusal ------------------
+
+    @override_settings(MESSAGEBUS_INSTANCE_ID=None)
+    def test_missing_instance_id_refusal_logs_at_error(self):
+        """LG-09"""
+        _, logged = self.refuse(config.check_instance_id)
+        self.assertIn("[ERROR]", logged)
+        self.assertIn("MESSAGEBUS_INSTANCE_ID", logged)
+
+    @override_settings(MESSAGEBUS_INSTANCE_ID=None)
+    def test_instance_id_refusal_line_matches_the_exception(self):
+        """LG-10"""
+        raised, logged = self.refuse(config.check_instance_id)
+        self.assertIn(raised, logged)
+
+        # Unset and blank are different mistakes — a blank one is usually an
+        # environment variable that did not expand — so the line has to say
+        # which it was.
+        with override_settings(MESSAGEBUS_INSTANCE_ID="   "):
+            blank_raised, blank_logged = self.refuse(config.check_instance_id)
+        self.assertIn(blank_raised, blank_logged)
+        self.assertNotEqual(raised, blank_raised)
+
+    # -- LG-11 / LG-12: the bus-database boot refusal -----------------
+
+    SHARED = {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "fcm",
+        "HOST": "db.internal",
+        "PORT": "5432",
+        "USER": "u",
+        "PASSWORD": "secret",
+    }
+
+    def refuse_bus_database(self):
+        databases = {"default": dict(self.SHARED), "messagebus": dict(self.SHARED)}
+        with mock.patch.dict(settings.DATABASES, databases, clear=True):
+            return self.refuse(config.check_bus_database)
+
+    def test_bus_on_the_game_database_refusal_logs_at_error(self):
+        """LG-11"""
+        _, logged = self.refuse_bus_database()
+        self.assertIn("[ERROR]", logged)
+        self.assertIn(BUS_ALIAS, logged)
+        self.assertIn("fcm", logged)
+        self.assertIn("db.internal", logged)
+
+    def test_bus_database_refusal_never_logs_a_password(self):
+        """LG-12"""
+        _, logged = self.refuse_bus_database()
+        # Assert something landed before asserting what it lacks. A file with
+        # nothing in it contains no password either, and this case would pass
+        # for that reason while the refusal logged nothing at all.
+        self.assertIn(BUS_ALIAS, logged)
+        self.assertNotIn("secret", logged)
+
+    # -- LG-13: the unmigrated bus table ------------------------------
+
+    def test_unmigrated_table_refusal_logs_at_error(self):
+        """LG-13"""
+        with mock.patch(
+            "evennia_message_bus.bus.bus_table_exists", return_value=False
+        ):
+            raised, logged = self.refuse(
+                bus.start_message_bus, interval=0.5, clock=Clock()
+            )
+        self.assertIn("[ERROR]", logged)
+        self.assertIn(BUS_ALIAS, logged)
+        self.assertIn("migrate", logged)
+        self.assertIn(raised, logged)
+
+    # -- LG-14 / LG-15 / LG-16: the registry refusals -----------------
+
+    def test_non_message_type_refusal_logs_at_error(self):
+        """LG-14"""
+        class NotAType:
+            pass
+
+        _, logged = self.refuse(register, NotAType)
+        self.assertIn("[ERROR]", logged)
+        self.assertIn("NotAType", logged)
+
+    def test_missing_kind_refusal_logs_at_error(self):
+        """LG-15"""
+        class NoKind(MessageType):
+            pass
+
+        _, logged = self.refuse(register, NoKind)
+        self.assertIn("[ERROR]", logged)
+        self.assertIn("NoKind", logged)
+
+    def test_kind_clash_refusal_logs_at_error(self):
+        """LG-16"""
+        register(AlwaysHandle)
+
+        class Impostor(MessageType):
+            kind = AlwaysHandle.kind
+
+            def handle(self, message):
+                return True
+
+        _, logged = self.refuse(register, Impostor)
+        self.assertIn("[ERROR]", logged)
+        self.assertIn(AlwaysHandle.kind, logged)
+        self.assertIn("AlwaysHandle", logged)
+        self.assertIn("Impostor", logged)
+
+    # -- LG-17: the timeout that does get a reply ---------------------
+
+    def test_timeout_with_a_return_address_logs_at_warn(self):
+        """LG-17"""
+        register(AlwaysDefer)
+        message = self.age(
+            self.make("always_defer", from_instance=PEER_ID), DEFAULT_TIMEOUT + 5
+        )
+        pk = message.pk
+
+        clear_logs()
+        bus.process_inbox()
+        logged = read_back_log("messagebus.log")
+
+        self.assertIn("[WARN]", logged)
+        self.assertIn(str(pk), logged)
+        self.assertIn("always_defer", logged)
+        self.assertIn(PEER_ID, logged)
+        # The age against the type's timeout — what makes the line diagnostic
+        # rather than just an announcement that something was dropped.
+        self.assertIn(str(AlwaysDefer.timeout), logged)
+
+    # -- LG-18: the self-addressed send refusal -----------------------
+
+    def test_self_addressed_send_refusal_logs_at_error(self):
+        """LG-18"""
+        raised, logged = self.refuse(AlwaysHandle.send, SELF_ID, {})
+        self.assertIn("[ERROR]", logged)
+        self.assertIn(SELF_ID, logged)
+        self.assertIn("MESSAGEBUS_INSTANCE_ID", logged)
+        self.assertIn(raised, logged)
+
+
 # --------------------------------------------------------------------------
 # LP — start_message_bus
 # --------------------------------------------------------------------------

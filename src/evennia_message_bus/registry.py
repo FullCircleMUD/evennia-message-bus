@@ -14,8 +14,15 @@ register the subclass.
 """
 
 from .errors import MessageBusError
+from .log import bus_log
 
 _REGISTRY: dict[str, type] = {}
+
+
+def _refuse(message: str):
+    """Log a registration refusal at ERROR, then raise it with the same text."""
+    bus_log(message, level="ERROR")
+    raise MessageBusError(message)
 
 
 def register(cls):
@@ -28,12 +35,10 @@ def register(cls):
     from .types import MessageType
 
     if not isinstance(cls, type) or not issubclass(cls, MessageType):
-        raise MessageBusError(
-            f"register() takes a MessageType subclass; got {cls!r}."
-        )
+        _refuse(f"register() takes a MessageType subclass; got {cls!r}.")
     kind = getattr(cls, "kind", None)
     if not kind or not str(kind).strip():
-        raise MessageBusError(
+        _refuse(
             f"{cls.__name__} declares no 'kind'. A message type needs one to "
             f"be addressable — it is the string the receiving instance "
             f"dispatches on."
@@ -41,10 +46,11 @@ def register(cls):
 
     existing = _REGISTRY.get(kind)
     if existing is not None and existing is not cls and not issubclass(cls, existing):
-        raise MessageBusError(
-            f"kind {kind!r} is already registered to {existing.__name__}. Two "
-            f"unrelated types cannot share a kind. To extend the registered "
-            f"one, subclass it and register the subclass — that replaces it."
+        _refuse(
+            f"kind {kind!r} is already registered to {existing.__name__}, and "
+            f"{cls.__name__} is not a subclass of it. Two unrelated types "
+            f"cannot share a kind. To extend the registered one, subclass it "
+            f"and register the subclass — that replaces it."
         )
     _REGISTRY[kind] = cls
     return cls
