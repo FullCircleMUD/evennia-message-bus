@@ -67,15 +67,14 @@ pip install -e .
 python runtests.py
 ```
 
-Installing the package is not enough on its own — a consumer declares the app, the bus database, the
-router and its own instance id in their settings. **See
-[docs/messagebus-settings.md](docs/messagebus-settings.md) for what to add**, including the entry that
-will silently break a game that already has database routers, and the reason the instance id is
-mandatory before you can even migrate.
+Installing the package is not enough on its own — a consumer declares the apps, its own instance id
+and the database call in their settings. **See [docs/installing.md](docs/installing.md) for what to
+add**, including why the bus needs a database of its own and the reason the instance id is mandatory
+before you can even migrate.
 
 ## Learn more
 
-- [docs/messagebus-settings.md](docs/messagebus-settings.md) — how to install it
+- [docs/installing.md](docs/installing.md) — how to install it
 - [docs/design.md](docs/design.md) — how it works and why
 - [docs/test-plan.md](docs/test-plan.md) — every case covered, and the test covering it
 - [docs/interoperability.md](docs/interoperability.md) — against its sibling libraries

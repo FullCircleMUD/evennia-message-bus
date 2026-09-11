@@ -6,7 +6,7 @@ Every document in this wiki. An un-indexed document is invisible, so index new o
 
 | Document | What it covers |
 |---|---|
-| [messagebus-settings.md](messagebus-settings.md) | Installing it — the settings, the migrate commands, sharing the database, starting the loop, declaring a message type |
+| [installing.md](installing.md) | Everything a consumer does to get the bus running — the apps, the instance id, the cascade's call, sharing the database, migrating, starting the loop |
 
 ## Design
 

@@ -13,7 +13,8 @@ All test functions live in `src/evennia_message_bus/tests.py`.
 | Prefix | Covers |
 |---|---|
 | `CF` | Config accessor and the boot-time check |
-| `RT` | Database placement — the router |
+| `RT` | Database placement |
+| `DS` | The `AliasSpec` declared to `evennia-database-cascade` |
 | `MR` | The `Message` row |
 | `MT` | The `MessageType` class contract |
 | `RG` | The handler registry |
@@ -52,7 +53,8 @@ deletes on a truthy return, leaves the row on a falsy one, and on `age > cls.tim
 ## Fixtures
 
 Unlike `evennia-targeting`, this suite needs a database — a bus is a table. It runs two SQLite aliases
-and the library's own router, mirroring a real consumer install.
+and the router `evennia-database-cascade` derives from the library's spec — `tests/test_settings.py`
+calls `configure()`, so every run exercises the real consumer path.
 
 | Fixture | Purpose |
 |---|---|
@@ -84,29 +86,27 @@ Two structural notes that fall out of the cases below:
 | CF-04 | The check passes when the setting is a non-empty string | `ConfigTest.test_check_passes_when_setting_present` |
 | CF-05 | The raised message names `MESSAGEBUS_INSTANCE_ID` — a consumer must not have to guess | `ConfigTest.test_check_message_names_the_setting` |
 | CF-06 | `AppConfig.ready()` calls the check, so an unconfigured consumer cannot boot | `ConfigTest.test_app_ready_calls_the_check` |
-| CF-07 | `messagebus_database()` uses `DATABASE_URL_MESSAGEBUS` when it is set | `DatabaseResolverTest.test_uses_the_alias_specific_url` |
-| CF-08 | Falls back to `DATABASE_URL`, sharing the game's database | `DatabaseResolverTest.test_falls_back_to_the_game_database_url` |
-| CF-09 | Falls back to the given SQLite path when neither is set | `DatabaseResolverTest.test_falls_back_to_the_sqlite_path` |
-| CF-10 | `DATABASE_URL_MESSAGEBUS` wins when both are set | `DatabaseResolverTest.test_alias_specific_url_wins` |
-| CF-11 | `describe_bus_database()` names the database and reports it came from `DATABASE_URL_MESSAGEBUS` | `DatabaseDescriptionTest.test_names_the_alias_specific_source` |
-| CF-12 | Reports "shared with the game database" when the bus alias resolves to the same database as `default` | `DatabaseDescriptionTest.test_reports_a_shared_game_database` |
+| CF-11 | `describe_bus_database()` names the database and host, so two startup lines can be compared | `DatabaseDescriptionTest.test_names_the_bus_database` |
 | CF-13 | Reports a local file for SQLite | `DatabaseDescriptionTest.test_reports_a_local_file` |
 | CF-14 | The description never contains a password | `DatabaseDescriptionTest.test_never_reports_a_password` |
 | CF-15 | A SQLite path is reported resolved, so gamedirs sharing one file by symlink report the same database | `DatabaseDescriptionTest.test_sqlite_path_is_reported_resolved` |
+| CF-16 | The boot check refuses a bus alias that resolves to the game's own database, naming `DATABASE_URL_MESSAGEBUS` in the message | `ConfigTest.test_check_refuses_a_bus_on_the_game_database` |
 
-The resolver has three rungs — `DATABASE_URL_MESSAGEBUS`, then `DATABASE_URL`, then a local SQLite
-file — and every rung is legitimate. Rung two shares the game's database, which is right for a
-consumer whose instances already run against one Postgres, and wrong for instances with databases of
-their own: each would get a private bus that works perfectly and reaches nobody.
+Where the bus database lands is resolved by `evennia-database-cascade` from the spec in `db_spec.py` —
+the rungs and their precedence are its suite's to cover, and the DS cases pin what this library
+declares. The description stays because its job was never resolution: two instances that should share
+a bus are confirmed by reading two startup lines, and that comparison needs the database's identity —
+name and host, with a SQLite path resolved through symlinks (CF-15). Which rung placed it is the
+cascade's knowledge, recorded in `cascade.log`.
 
-No instance can tell the two apart. Resolving its own settings, it sees an identical picture either
-way — the difference exists only *across* instances, so there is nothing to detect locally and no
-warning worth emitting. CF-11..CF-13 are the answer instead: the startup line states which rung it
-landed on, so two instances that should share a bus are confirmed by reading two log lines rather than
-by reasoning about environment variables.
+CF-16 is the backstop for what the cascade cannot see. The spec refuses the shared rung, but an
+explicit `DATABASE_URL_MESSAGEBUS` pointed at an instance's game database resolves cleanly — and the
+bus is then part of the very instance it exists to be independent of. The check compares engine, name,
+host, port and `TEST["NAME"]` against `default`, the `evennia-archive` pattern; two entries reaching
+one database under different hostnames pass it, so the constraint is the deployment's to hold as well.
 
-CF-14 is not decoration. The description is written to a log file; `dj-database-url` parses
-credentials out of the URL, and only the database name and host may be reported.
+CF-14 is not decoration. The description is written to a log file; the resolved entry holds
+credentials parsed out of a URL, and only the database name and host may be reported.
 
 CF-15 is what makes the diagnostic work locally at all. Instances share a SQLite bus by symlinking one
 file into each gamedir, so each one's configured `NAME` is a different path to the same database.
@@ -119,30 +119,31 @@ the line is for.
 |---|---|---|
 | RT-01 | A `Message` write lands in the bus alias | `RouterTest.test_write_lands_in_the_bus_alias` |
 | RT-02 | A `Message` read comes from the bus alias | `RouterTest.test_read_comes_from_the_bus_alias` |
-| RT-03 | `allow_migrate` is `True` for this app on the bus alias | `RouterTest.test_allow_migrate_true_on_the_bus_alias` |
-| RT-04 | `allow_migrate` is `False` for this app on `default` — the table must not appear in the game database | `RouterTest.test_allow_migrate_false_on_default` |
-| RT-05 | `allow_migrate` returns `None` for a foreign app on a foreign alias | `RouterTest.test_allow_migrate_none_for_a_foreign_app` |
-| RT-06 | `db_for_read` / `db_for_write` return `None` for a foreign model | `RouterTest.test_db_for_read_and_write_none_for_a_foreign_model` |
-| RT-07 | `allow_migrate` is `False` for a foreign app on the bus alias — the bus database holds the bus table, not a game schema | `RouterTest.test_allow_migrate_false_for_a_foreign_app_on_the_bus_alias` |
 
-RT-04 is the case that matters most operationally. Get it wrong and a plain `evennia migrate` creates
-the bus table inside each instance's own game database — every instance then polls a private bus that
-works perfectly and reaches nobody.
+The library ships no router — `evennia-database-cascade` derives one from the spec. RT-01 and RT-02
+stay because they assert the outcome that matters, bus rows living on the bus alias, and must hold
+under any router. The retired method-contract cases are the derived router's semantics, which are the
+cascade's suite's to cover; DS-04 proves discovery, resolution and routing end to end from this side.
 
-RT-07 is RT-04's mirror, and the reason the two are separate cases. RT-04 keeps our table out of other
-databases; RT-07 keeps other tables out of ours. Without it, `migrate --database=messagebus` finds no
-objection to Evennia's own apps and clones the entire game schema — 42 tables — into what should hold
-one. Not breakage, but it makes the bus database unreadable at a glance: anyone opening it to debug
-sees `objectdb` and `accountdb` sitting there and cannot tell whether instances are sharing game state
-through it.
+## DS — the database spec
 
-The asymmetry with RT-05 is the point. Declining a foreign app on *our* alias refuses work; answering
-for a foreign app on *another* alias would capture another router's decision. The first is safe, the
-second is the failure the module docstring warns about.
+| ID | Case | Test function |
+|---|---|---|
+| DS-01 | `SPEC.app_label` is `evennia_message_bus` and `SPEC.alias` is `config.BUS_ALIAS`, not a second literal | `DatabaseSpecTest.test_the_spec_names_the_config_alias` |
+| DS-02 | The spec refuses the shared rung — `allow_sharing_common_db` is `False` | `DatabaseSpecTest.test_the_spec_refuses_the_shared_rung` |
+| DS-03 | The spec refuses foreign tables in its own database — `allow_foreign_tables_in_own_db` is `False` | `DatabaseSpecTest.test_the_spec_refuses_foreign_tables` |
+| DS-04 | `configure()` with this library installed and an empty environment returns a `messagebus` entry on the SQLite rung and a router that sends `Message` to the alias — discovery, resolution and routing proven from this side of the contract | `DatabaseSpecTest.test_configure_resolves_and_routes_the_alias` |
 
-RT-05 and RT-06 are the constraint `evennia-ai-memory` documents in its `interoperability.md`: a
-consumer can have several library routers in `DATABASE_ROUTERS` at once, and a router that answers for
-somebody else's model silently captures their queries.
+DS-02 is the library's position, not a table-collision constraint like `evennia-archive`'s. The bus is
+the transport *between* instances, so it must not live inside any one instance's database: a bus
+riding the shared rung on instance A's `DATABASE_URL` is part of instance A, and instances with
+databases of their own would each resolve a private bus that works perfectly and reaches nobody. A
+deployment that genuinely wants the bus inside a shared server database says so explicitly, with
+`DATABASE_URL_MESSAGEBUS`.
+
+DS-03 keeps the bus database readable at a glance: it holds one table, and without the refusal a
+`migrate --database=messagebus` would find no objection to Evennia's own apps and clone the whole game
+schema into it.
 
 ## MR — the `Message` row
 

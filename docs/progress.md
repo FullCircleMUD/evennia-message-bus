@@ -3,6 +3,34 @@
 Reverse-chronological milestone log. Newest first. Each entry states what became true and what proves
 it.
 
+## 2026-09-11 — The database is declared to evennia-database-cascade
+
+`db_spec.py` carries the `AliasSpec`; the cascade derives the `DATABASES` entry, the router and the
+migration list from it. `db_router.py` and the hand-rolled resolver are gone, and `dj-database-url`
+with them. `BUS_ALIAS` lives in `config.py`.
+
+The spec refuses the shared `DATABASE_URL` rung — a position, not a table-collision constraint: the
+bus is the transport *between* instances, so it must not live inside any one instance's database.
+The previous resolver treated the shared rung as legitimate; that was wrong for what this library is
+for. A deployment that wants the bus on a shared server says so explicitly with
+`DATABASE_URL_MESSAGEBUS` — and `check_bus_database()` refuses the boot if that points at the game's
+own database (identity comparison including `TEST["NAME"]`, `evennia-archive`'s pattern).
+
+`describe_bus_database()` reports identity only — name and host, SQLite paths resolved through
+symlinks. Which rung placed the database is the cascade's knowledge, in `cascade.log`.
+
+**What proves it**
+
+The suite: 102 tests, with `tests/test_settings.py` resolving the alias through `configure()`, so
+every run exercises the real consumer path. DS-01..DS-04 pin the spec and prove discovery,
+resolution and routing end to end; CF-16 pins the boot refusal. CF-07..CF-10, CF-12 and RT-03..RT-07
+retired with the code they asserted.
+
+Live, on the demo gamedirs: `evennia cascade_migrate` rebuilt a deleted bus database with exactly
+the bus table in it; both instances booted with startup lines naming one resolved file through the
+symlink; a `test` round trip game-a → game-b → game-a; the unknown-kind reject path landing in both
+logs; zero rows left on the bus.
+
 ## 2026-09-11 — Logging binds through evennia-logging-extension
 
 `log.py` is the standard three-line binding: `bus_log = make_logger("messagebus.log")`. The bound name
@@ -56,7 +84,7 @@ Rungs one and two have never run against a real PostgreSQL. Everything so far is
 ## 2026-08-31 — Round trip between two live instances
 
 Two Evennia instances, each with its own game database, exchanging messages through one shared bus.
-Set up by following [messagebus-settings.md](messagebus-settings.md) from a bare `evennia --init`, so
+Set up by following the settings document (now [archive/messagebus-settings.md](archive/messagebus-settings.md)) from a bare `evennia --init`, so
 the document is now what was exercised rather than a description of it.
 
 **What proves it**

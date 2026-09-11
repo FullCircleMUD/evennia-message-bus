@@ -26,7 +26,7 @@ from evennia_message_bus.config import (
     check_instance_id,
     get_instance_id,
 )
-from evennia_message_bus.db_router import BUS_ALIAS, MessageBusRouter
+from evennia_message_bus.config import BUS_ALIAS
 from evennia_message_bus.errors import MessageBusError
 from evennia_message_bus.models import Message
 from evennia_message_bus.registry import get_type, register
@@ -223,74 +223,56 @@ class ConfigTest(PlainTestCase):
             app.ready()
         checked.assert_called_once()
 
-
-PG_BUS = "postgres://u:secret@db.internal:5432/fcm_bus"
-PG_GAME = "postgres://u:secret@db.internal:5432/fcm"
-SQLITE_PATH = "/tmp/messagebus.db3"
-
-
-class DatabaseResolverTest(PlainTestCase):
-    def resolve(self, **env):
-        with mock.patch.dict("os.environ", env, clear=True):
-            return config.messagebus_database(SQLITE_PATH)
-
-    def test_uses_the_alias_specific_url(self):
-        """CF-07"""
-        resolved = self.resolve(DATABASE_URL_MESSAGEBUS=PG_BUS)
-        self.assertEqual(resolved["NAME"], "fcm_bus")
-        self.assertIn("postgresql", resolved["ENGINE"])
-
-    def test_falls_back_to_the_game_database_url(self):
-        """CF-08"""
-        resolved = self.resolve(DATABASE_URL=PG_GAME)
-        self.assertEqual(resolved["NAME"], "fcm")
-
-    def test_falls_back_to_the_sqlite_path(self):
-        """CF-09"""
-        resolved = self.resolve()
-        self.assertEqual(resolved["NAME"], SQLITE_PATH)
-        self.assertIn("sqlite3", resolved["ENGINE"])
-
-    def test_alias_specific_url_wins(self):
-        """CF-10"""
-        resolved = self.resolve(
-            DATABASE_URL_MESSAGEBUS=PG_BUS, DATABASE_URL=PG_GAME
-        )
-        self.assertEqual(resolved["NAME"], "fcm_bus")
-
-
-class DatabaseDescriptionTest(PlainTestCase):
-    def describe(self, bus, default=None, **env):
-        # patch.dict rather than override_settings: Django warns that
-        # overriding DATABASES can behave unexpectedly, and this only needs
-        # the mapping the function reads.
-        databases = {"default": default or {}, "messagebus": bus}
-        with mock.patch.dict("os.environ", env, clear=True):
-            with mock.patch.dict(settings.DATABASES, databases, clear=True):
-                return config.describe_bus_database()
-
-    def test_names_the_alias_specific_source(self):
-        """CF-11"""
-        with mock.patch.dict(
-            "os.environ", {"DATABASE_URL_MESSAGEBUS": PG_BUS}, clear=True
-        ):
-            bus = config.messagebus_database(SQLITE_PATH)
-        described = self.describe(bus, DATABASE_URL_MESSAGEBUS=PG_BUS)
-        self.assertIn("fcm_bus", described)
-        self.assertIn("db.internal", described)
-        self.assertIn("DATABASE_URL_MESSAGEBUS", described)
-
-    def test_reports_a_shared_game_database(self):
-        """CF-12"""
-        shared = {
+    def test_check_refuses_a_bus_on_the_game_database(self):
+        """CF-16"""
+        game = {
             "ENGINE": "django.db.backends.postgresql",
             "NAME": "fcm",
             "HOST": "db.internal",
             "PORT": "5432",
         }
-        described = self.describe(dict(shared), default=dict(shared))
-        self.assertIn("fcm", described)
-        self.assertIn("shared with the game database", described)
+        databases = {"default": dict(game), "messagebus": dict(game)}
+        with mock.patch.dict(settings.DATABASES, databases, clear=True):
+            with self.assertRaises(ImproperlyConfigured) as ctx:
+                config.check_bus_database()
+        self.assertIn("DATABASE_URL_MESSAGEBUS", str(ctx.exception))
+
+
+SQLITE_PATH = "/tmp/messagebus.db3"
+
+PG_BUS_ENTRY = {
+    "ENGINE": "django.db.backends.postgresql",
+    "NAME": "fcm_bus",
+    "HOST": "db.internal",
+    "PORT": "5432",
+    "USER": "u",
+    "PASSWORD": "secret",
+}
+
+PG_GAME_ENTRY = {
+    "ENGINE": "django.db.backends.postgresql",
+    "NAME": "fcm",
+    "HOST": "db.internal",
+    "PORT": "5432",
+    "USER": "u",
+    "PASSWORD": "secret",
+}
+
+
+class DatabaseDescriptionTest(PlainTestCase):
+    def describe(self, bus, default=None):
+        # patch.dict rather than override_settings: Django warns that
+        # overriding DATABASES can behave unexpectedly, and this only needs
+        # the mapping the function reads.
+        databases = {"default": default or {}, "messagebus": bus}
+        with mock.patch.dict(settings.DATABASES, databases, clear=True):
+            return config.describe_bus_database()
+
+    def test_names_the_bus_database(self):
+        """CF-11"""
+        described = self.describe(dict(PG_BUS_ENTRY), default=dict(PG_GAME_ENTRY))
+        self.assertIn("fcm_bus", described)
+        self.assertIn("db.internal", described)
 
     def test_reports_a_local_file(self):
         """CF-13"""
@@ -320,12 +302,7 @@ class DatabaseDescriptionTest(PlainTestCase):
 
     def test_never_reports_a_password(self):
         """CF-14"""
-        with mock.patch.dict(
-            "os.environ", {"DATABASE_URL_MESSAGEBUS": PG_BUS}, clear=True
-        ):
-            bus = config.messagebus_database(SQLITE_PATH)
-        self.assertEqual(bus["PASSWORD"], "secret")
-        described = self.describe(bus, DATABASE_URL_MESSAGEBUS=PG_BUS)
+        described = self.describe(dict(PG_BUS_ENTRY), default=dict(PG_GAME_ENTRY))
         self.assertNotIn("secret", described)
 
 
@@ -345,36 +322,65 @@ class RouterTest(BusTestCase):
         self.make("always_handle")
         self.assertEqual(Message.objects.all().db, BUS_ALIAS)
 
-    def test_allow_migrate_true_on_the_bus_alias(self):
-        """RT-03"""
-        self.assertIs(
-            MessageBusRouter().allow_migrate(BUS_ALIAS, "evennia_message_bus"), True
+
+# --------------------------------------------------------------------------
+# DS — the database spec
+# --------------------------------------------------------------------------
+
+
+class DatabaseSpecTest(PlainTestCase):
+    """The AliasSpec this library declares, and the cascade's answer to it."""
+
+    def test_the_spec_names_the_config_alias(self):
+        """DS-01"""
+        import inspect
+
+        from evennia_message_bus import db_spec
+
+        # Comparing the values proves nothing: Python interns short strings,
+        # so two independent "messagebus" literals are the same object. The
+        # fact worth pinning is that the spec holds no alias literal of its
+        # own.
+        source = inspect.getsource(db_spec)
+        self.assertIn("from .config import", source)
+        self.assertNotIn('alias="messagebus"', source)
+        self.assertEqual(db_spec.SPEC.app_label, "evennia_message_bus")
+        self.assertEqual(db_spec.SPEC.alias, config.BUS_ALIAS)
+
+    def test_the_spec_refuses_the_shared_rung(self):
+        """DS-02"""
+        from evennia_message_bus.db_spec import SPEC
+
+        self.assertFalse(SPEC.allow_sharing_common_db)
+
+    def test_the_spec_refuses_foreign_tables(self):
+        """DS-03"""
+        from evennia_message_bus.db_spec import SPEC
+
+        self.assertFalse(SPEC.allow_foreign_tables_in_own_db)
+
+    def test_configure_resolves_and_routes_the_alias(self):
+        """DS-04"""
+        import tempfile
+
+        from evennia_database_cascade import configure
+
+        databases, routers = configure(
+            {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
+            ["evennia_message_bus"],
+            tempfile.gettempdir(),
+            {},
         )
-
-    def test_allow_migrate_false_on_default(self):
-        """RT-04"""
-        self.assertIs(
-            MessageBusRouter().allow_migrate("default", "evennia_message_bus"), False
+        self.assertIn(config.BUS_ALIAS, databases)
+        self.assertTrue(
+            databases[config.BUS_ALIAS]["NAME"].endswith("messagebus.db3")
         )
-
-    def test_allow_migrate_none_for_a_foreign_app(self):
-        """RT-05"""
-        self.assertIsNone(MessageBusRouter().allow_migrate("default", "objects"))
-        self.assertIsNone(MessageBusRouter().allow_migrate("archive", "objects"))
-
-    def test_allow_migrate_false_for_a_foreign_app_on_the_bus_alias(self):
-        """RT-07"""
-        self.assertIs(
-            MessageBusRouter().allow_migrate(BUS_ALIAS, "objects"), False
+        routed = next(
+            alias
+            for alias in (router.db_for_write(Message) for router in routers)
+            if alias is not None
         )
-
-    def test_db_for_read_and_write_none_for_a_foreign_model(self):
-        """RT-06"""
-        from evennia.objects.models import ObjectDB
-
-        router = MessageBusRouter()
-        self.assertIsNone(router.db_for_read(ObjectDB))
-        self.assertIsNone(router.db_for_write(ObjectDB))
+        self.assertEqual(routed, config.BUS_ALIAS)
 
 
 # --------------------------------------------------------------------------

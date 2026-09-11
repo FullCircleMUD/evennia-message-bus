@@ -36,19 +36,14 @@ SERVERNAME = "game-b"
 
 MESSAGEBUS_INSTANCE_ID = SERVERNAME
 
-INSTALLED_APPS += ["evennia_message_bus"]
+INSTALLED_APPS += ["evennia_message_bus", "evennia_database_cascade"]
 
-
-from evennia_message_bus.config import messagebus_database
-DATABASES["messagebus"] = messagebus_database(
-    os.path.join(GAME_DIR, "server", "messagebus.db3")
-)
-
-_BUS_ROUTER = "evennia_message_bus.db_router.MessageBusRouter"
-
-DATABASE_ROUTERS = list(globals().get("DATABASE_ROUTERS", []))
-if _BUS_ROUTER not in DATABASE_ROUTERS:
-    DATABASE_ROUTERS.append(_BUS_ROUTER)
+# The bus alias and its router come from the cascade, resolved from the
+# library's own db_spec. With no DATABASE_URL* set this lands on
+# server/messagebus.db3 — a symlink to game-a's, so both instances share
+# one bus.
+from evennia_database_cascade import configure
+DATABASES, DATABASE_ROUTERS = configure(DATABASES, INSTALLED_APPS, GAME_DIR, os.environ)
 
 
 # Shift every port by 100 so both instances can run at once

@@ -39,8 +39,7 @@ _LAZY = {
     "poll": ("evennia_message_bus.bus", "poll"),
     "get_instance_id": ("evennia_message_bus.config", "get_instance_id"),
     "DEFAULT_TIMEOUT": ("evennia_message_bus.config", "DEFAULT_TIMEOUT"),
-    "BUS_ALIAS": ("evennia_message_bus.db_router", "BUS_ALIAS"),
-    "MessageBusRouter": ("evennia_message_bus.db_router", "MessageBusRouter"),
+    "BUS_ALIAS": ("evennia_message_bus.config", "BUS_ALIAS"),
     "MessageBusError": ("evennia_message_bus.errors", "MessageBusError"),
     "Message": ("evennia_message_bus.models", "Message"),
 }

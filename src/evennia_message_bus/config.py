@@ -1,23 +1,23 @@
 # SPDX-License-Identifier: BSD-3-Clause
-"""Settings accessors and the boot-time check.
+"""Settings accessors and the boot-time checks.
 
 The library reads one setting, ``MESSAGEBUS_INSTANCE_ID`` — this instance's
 name on the bus. Peers address messages to it, and it is how the bus knows
 which rows are ours to process.
 
-``check_instance_id`` is called from ``AppConfig.ready()``, so a consumer
-that installs the library without configuring it cannot boot. It is a plain
-function rather than logic inlined into ``ready()`` so it can be called —
-and tested — on its own.
+Where the bus *database* lands is not decided here: ``db_spec.py`` declares
+the alias to ``evennia-database-cascade``, and the cascade resolves it from
+the environment. What this module keeps is the checking and the describing —
+``check_instance_id`` and ``check_bus_database`` are called from
+``AppConfig.ready()`` so a misconfigured consumer cannot boot, and
+``describe_bus_database`` names the resolved database for the startup log
+line. They are plain functions rather than logic inlined into ``ready()`` so
+they can be called — and tested — on their own.
 """
 
 import os
 
-import dj_database_url
-from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-
-from .db_router import BUS_ALIAS
 
 #: Seconds a message may sit deferred before the bus gives up on it and
 #: replies undeliverable. Overridden per message type by setting ``timeout``
@@ -27,16 +27,16 @@ DEFAULT_TIMEOUT = 10
 
 SETTING_NAME = "MESSAGEBUS_INSTANCE_ID"
 
-#: Environment variable naming a database for the bus alone.
-BUS_URL_ENV = "DATABASE_URL_MESSAGEBUS"
-
-#: The game's own database URL. Used when the bus has no database of its
-#: own, which shares the game's.
-GAME_URL_ENV = "DATABASE_URL"
+#: The DATABASES alias the bus table lives on. Declared to
+#: evennia-database-cascade by db_spec.py, which derives the DATABASES
+#: entry, the router and the migration list from it.
+BUS_ALIAS = "messagebus"
 
 
 def get_instance_id() -> str | None:
     """Return this instance's bus identity, or ``None`` if unset."""
+    from django.conf import settings
+
     return getattr(settings, SETTING_NAME, None)
 
 
@@ -59,43 +59,67 @@ def check_instance_id() -> str:
     return str(value)
 
 
-def messagebus_database(sqlite_path: str) -> dict:
-    """Resolve the bus database, for a consumer's ``DATABASES`` entry.
+def _database_identity(entry):
+    """What decides whether two DATABASES entries are one database.
 
-    Three rungs, in order:
-
-    1. ``DATABASE_URL_MESSAGEBUS`` — the bus has a database of its own.
-    2. ``DATABASE_URL`` — the bus shares the game's database.
-    3. ``sqlite_path`` — a local file.
-
-    Every rung is legitimate, and which one is *correct* depends on
-    something no instance can see. Rung two is right for a consumer whose
-    instances already run against one Postgres, and wrong for instances
-    with databases of their own — each would get a private bus that works
-    perfectly and reaches nobody. Resolving its own settings, an instance
-    sees an identical picture either way; the difference exists only
-    across instances.
-
-    So this does not guess, and does not warn. ``describe_bus_database``
-    puts the answer in the startup log instead, where two instances can
-    be compared.
+    ``TEST["NAME"]`` is part of it — the `evennia-archive` pattern. Under
+    Django's test runner that is the database an alias actually uses, and two
+    aliases can share a ``NAME`` of ``:memory:`` while pointing at genuinely
+    separate test databases — which is exactly what this library's own suite
+    does.
     """
-    url = os.environ.get(BUS_URL_ENV) or os.environ.get(GAME_URL_ENV)
-    if url:
-        return dj_database_url.parse(url)
-    return {"ENGINE": "django.db.backends.sqlite3", "NAME": sqlite_path}
+    test = entry.get("TEST") or {}
+    return tuple(
+        entry.get(key) for key in ("ENGINE", "NAME", "HOST", "PORT")
+    ) + (test.get("NAME"),)
+
+
+def check_bus_database() -> None:
+    """Refuse a bus alias that resolves to the game's own database.
+
+    The spec refuses the shared rung, but an explicit
+    ``DATABASE_URL_MESSAGEBUS`` pointed at an instance's game database
+    resolves cleanly — and the bus is then part of the very instance it
+    exists to be independent of. Caught here, at boot, rather than presenting
+    as a healthy game whose bus is not a bus.
+
+    The comparison is engine, name, host and port. Two entries reaching one
+    database under different hostnames pass it, so the constraint is the
+    deployment's to hold as well.
+    """
+    from django.conf import settings
+
+    databases = getattr(settings, "DATABASES", {})
+    bus = databases.get(BUS_ALIAS)
+    default = databases.get("default")
+    if not bus or not default:
+        # No bus alias means the cascade's own boot check has the better
+        # message; nothing useful to compare here.
+        return
+
+    if _database_identity(bus) == _database_identity(default):
+        raise ImproperlyConfigured(
+            f"the {BUS_ALIAS!r} database is the game's own database. The bus "
+            f"is the transport between instances, so it must not live inside "
+            f"any one instance's database. Point DATABASE_URL_MESSAGEBUS at a "
+            f"database of its own, or unset it to fall back to a local "
+            f"messagebus.db3 file."
+        )
 
 
 def describe_bus_database() -> str:
-    """One phrase naming the bus database and where it came from.
+    """One phrase naming the bus database, for the startup log line.
 
-    Written to the log at startup. Two instances that should share a bus
-    are then confirmed by reading two log lines, rather than by reasoning
-    about which environment variables were set where.
+    Two instances that should share a bus are confirmed by reading two
+    startup lines, so what matters here is identity — the database's name
+    and host. Which environment variable placed it there is the cascade's
+    knowledge, recorded in ``cascade.log``.
 
-    Reports the database name and host only. The configuration holds
+    Reports the database name and host only. The resolved entry holds
     credentials parsed out of a URL and they must never reach a log file.
     """
+    from django.conf import settings
+
     databases = getattr(settings, "DATABASES", {})
     bus = databases.get(BUS_ALIAS) or {}
     name = bus.get("NAME") or "?"
@@ -106,17 +130,6 @@ def describe_bus_database() -> str:
     # or two logs describing one file would disagree.
     if "sqlite" in str(bus.get("ENGINE", "")) and name != "?":
         name = os.path.realpath(name)
+        return f"{name!r} (local file)"
 
-    where = f"{name!r} on {host!r}" if host else f"{name!r}"
-
-    if os.environ.get(BUS_URL_ENV):
-        return f"{where} (from {BUS_URL_ENV})"
-
-    default = databases.get("default") or {}
-    identity = ("ENGINE", "NAME", "HOST", "PORT")
-    if all(bus.get(key) == default.get(key) for key in identity):
-        return f"{where} (shared with the game database)"
-
-    if "sqlite" in str(bus.get("ENGINE", "")):
-        return f"{where} (local file)"
-    return where
+    return f"{name!r} on {host!r}" if host else f"{name!r}"

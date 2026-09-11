@@ -4,10 +4,10 @@ This library against every sibling library in `libraries/`.
 
 What this library does that could constrain a sibling:
 
-- Registers a **Django app** with a **router** and its own **database alias**
+- Registers a **Django app** with its own **database alias**, declared to `evennia-database-cascade`
 - Runs a **Twisted `LoopingCall`** on the Server reactor to poll for messages
-- **Raises at `AppConfig.ready()`** if `MESSAGEBUS_INSTANCE_ID` is unset, which stops the whole game
-  booting, not just this library
+- **Raises at `AppConfig.ready()`** if `MESSAGEBUS_INSTANCE_ID` is unset or the bus alias resolves to
+  the game's own database, which stops the whole game booting, not just this library
 
 It touches no `ObjectDB` row, resolves no game object, and never reads inside a payload.
 
@@ -15,20 +15,27 @@ It touches no `ObjectDB` row, resolves no game object, and never reads inside a 
 
 **No coupling.** Neither imports the other.
 
-Both install a router and write to an alias of their own, so both sit in the consumer's
-`DATABASE_ROUTERS` at once. The requirement — a router must return `None` for every app it does not own,
-or it silently captures the other's queries — is documented in ai-memory's own `interoperability.md`.
-This library's router answers only for `evennia_message_bus` models.
+Both write to an alias of their own, so a consumer running both has two routers in
+`DATABASE_ROUTERS`. This library's router is derived by `evennia-database-cascade` from its spec and
+answers only for `evennia_message_bus` models — the requirement a hand-written sibling router must
+also meet (return `None` for every app it does not own) is documented in ai-memory's own
+`interoperability.md`.
 
 ## evennia-archive
 
 **No coupling.** Neither imports the other.
 
-Same router consideration as ai-memory above; archive ships `ArchiveRouter`, so a consumer running both
-definitely has two in the list. Documented once, in ai-memory's file, so the pair cannot drift.
+Both declare their alias to `evennia-database-cascade` and neither ships a router of its own.
+Archive's second database is a schema clone of the game; this library's is a small table of its own.
+Separate aliases, no rows in common, neither reads the other's.
 
-Beyond that: archive's second database is a schema clone of the game; this library's is a small table
-of its own. Separate aliases, no rows in common, neither reads the other's.
+## evennia-database-cascade
+
+**Hard dependency.** `db_spec.py` declares the bus alias to it — refusing the shared rung, because
+the bus must be independent of any one instance's database — and the cascade derives the `DATABASES`
+entry, the router and the migration list from that declaration. The library ships no router and no
+resolution code of its own, and does not run without the cascade: `pyproject.toml` declares it.
+Nothing flows the other way: the cascade knows nothing about the bus.
 
 ## evennia-logging-extension
 

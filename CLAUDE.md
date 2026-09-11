@@ -72,6 +72,10 @@ Decided as questions arise. Rulings so far:
   [docs/design.md](docs/design.md).
 - **Peer discovery.** Instances are named by a source-controlled constant on each side.
 - **Concurrent draining.** One poller per instance id, documented rather than enforced with row locks.
+- **Database resolution and routing.** Both belong to `evennia-database-cascade`: this library
+  declares its alias in [db_spec.py](src/evennia_message_bus/db_spec.py) — refusing the shared rung,
+  because the bus must be independent of any one instance's database — and ships no router, no
+  `DATABASES` snippet and no resolution code. Do not write any of them back.
 
 ## Working conventions
 
@@ -119,9 +123,9 @@ evennia-message-bus/
 ├── src/
 │   └── evennia_message_bus/   # library code (src layout)
 │       ├── __init__.py        # lazy public API
-│       ├── apps.py            # AppConfig — refuses the boot with no instance id
+│       ├── apps.py            # AppConfig — refuses the boot with no instance id, or a bus on the game database
 │       ├── config.py          # settings accessors, DEFAULT_TIMEOUT
-│       ├── db_router.py       # MessageBusRouter, BUS_ALIAS
+│       ├── db_spec.py         # the AliasSpec declared to evennia-database-cascade
 │       ├── models.py          # Message
 │       ├── registry.py        # register / get_type
 │       ├── types.py           # MessageType + the library-shipped types
@@ -136,6 +140,8 @@ evennia-message-bus/
 ## Tools and environment
 
 - Python 3.10+ (pinned via `pyproject.toml`).
-- Evennia is the only runtime dependency.
+- Runtime dependencies: Evennia, `evennia-database-cascade` and `evennia-logging-extension`.
+  Neither sibling is published, so a dev venv installs them from their checkouts:
+  `pip install -e ../evennia-database-cascade -e ../evennia-logging-extension`.
 - Tests run through Django's test runner via `python runtests.py` — not pytest.
 - Development uses a dedicated venv at `venv/` (gitignored), independent of any consumer game.

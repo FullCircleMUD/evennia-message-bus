@@ -16,8 +16,12 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connections
 from django.utils import timezone
 
-from .config import check_instance_id, describe_bus_database, get_instance_id
-from .db_router import BUS_ALIAS
+from .config import (
+    BUS_ALIAS,
+    check_instance_id,
+    describe_bus_database,
+    get_instance_id,
+)
 from .log import bus_log
 from .models import Message
 from .registry import get_type, registered_kinds

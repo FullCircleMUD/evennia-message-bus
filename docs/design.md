@@ -29,33 +29,36 @@ mail-shaped expectations — a different library.
 
 ## The bus database
 
-A `messages` table on its own `DATABASES` alias, with the library's router. Same pattern
-`evennia-archive` uses. Instances insert rows addressed to each other and poll for their own.
+A `messages` table on a `DATABASES` alias of its own. Instances insert rows addressed to each other
+and poll for their own.
 
-Two router rules, both load-bearing:
+The alias, its `DATABASES` entry, its router and its migration list all come from
+`evennia-database-cascade`: `db_spec.py` declares the alias and the cascade derives the rest, so
+routing and migration cannot disagree. The library ships no router and no resolution code.
 
-- **Answers only for this app**, `None` for everything else. A consumer can have several library
-  routers in `DATABASE_ROUTERS`; one that answers for a foreign model silently captures its queries.
-- **`allow_migrate` is `False` on every other alias.** Without it a plain `evennia migrate` creates the
-  table in each instance's *game* database, and every instance then polls a private bus that works
-  perfectly and reaches nobody.
+The spec refuses the shared `DATABASE_URL` rung — **the bus must be independent of any one
+instance's database.** The bus is the transport *between* instances; a bus living inside instance
+A's database is part of instance A, and instances with databases of their own would each resolve a
+private bus that works perfectly and reaches nobody. So the bus lands on `DATABASE_URL_MESSAGEBUS`
+or on a local `messagebus.db3` file, never on the game's database by default. A deployment that
+genuinely wants the bus on a shared server says so explicitly, with `DATABASE_URL_MESSAGEBUS`.
 
-**Migrating.** The bus database is shared, so only the first instance's migrate does work; later ones
-find the rows in `django_migrations` and no-op. Evennia passes `migrate` through to Django as a
-deliberate command rather than running it at startup, so instances cannot race.
+The backstop for the explicit case is the library's own: `check_bus_database()` refuses the boot
+when the bus alias resolves to the game's own database — an engine/name/host/port identity
+comparison, `evennia-archive`'s pattern.
+
+**Migrating.** `evennia cascade_migrate` covers the game and the bus in one command. The bus
+database is shared, so only the first instance's migrate does work; later ones find the rows in
+`django_migrations` and no-op. Evennia passes `migrate` through to Django as a deliberate command
+rather than running it at startup, so instances cannot race.
 
 **Sharing.** Locally, a symlink per gamedir back to one file — the same way FCM's view gamedirs reach a
 shared `archive.db3`. Deployed, every instance sets `DATABASE_URL_MESSAGEBUS` to the same value.
 
-**Resolution** follows the shape FCM's other aliases already use: `DATABASE_URL_MESSAGEBUS`, then
-`DATABASE_URL`, then a local SQLite file. Rung two shares the game's database — correct where
-instances already run against one Postgres, wrong where each has its own, since every instance would
-then get a private bus that reaches nobody.
-
-Nothing can be done about that locally. An instance reading its own settings sees an identical picture
-either way; the difference exists only *across* instances. So the resolver neither guesses nor warns,
-and the startup line states which rung it landed on instead — two logs side by side answer the
-question. Name and host only, never credentials.
+Whether two instances actually share a bus is confirmed from the startup lines: each names the
+resolved database — a SQLite path resolved through symlinks, so two lines describing one file agree.
+Name and host only, never credentials. Which environment variable placed the database is the
+cascade's knowledge, recorded in `cascade.log`.
 
 ## Instance identity
 
@@ -153,7 +156,8 @@ reply to a reply.
 
 ## What ships
 
-- The `messages` table, the router, and send / poll / delete
+- The `messages` table, the `db_spec.py` declaration to `evennia-database-cascade`, and
+  send / poll / delete
 - `MessageType` and the registry
 - The polling loop, started from the consumer's `at_server_start()`. It refuses to start with no
   instance id, or against an unmigrated bus database — one failure at startup rather than an error

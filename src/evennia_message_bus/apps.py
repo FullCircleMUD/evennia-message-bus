@@ -25,3 +25,4 @@ class EvenniaMessageBusConfig(AppConfig):
 
     def ready(self):
         config.check_instance_id()
+        config.check_bus_database()

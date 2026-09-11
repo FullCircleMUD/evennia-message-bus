@@ -28,29 +28,34 @@ os.makedirs(LOG_DIR, exist_ok=True)
 # Library under test
 INSTALLED_APPS = list(INSTALLED_APPS) + ["evennia_message_bus"]  # noqa: F405
 
-# Two in-memory databases, mirroring a real consumer install: the game, and
-# the bus it messages through. Without the second alias and the router, a
-# test for send() would write to `default` and pass for the wrong reason.
-#
-# The TEST names are not decoration. Two aliases both saying ":memory:" look
-# like one database to Django's test runner, which then treats the second as
-# a mirror of the first — so the router would appear to work while both
-# aliases pointed at the same physical database. Distinct shared-cache URIs
-# keep them genuinely separate.
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": ":memory:",
         "TEST": {"NAME": "file:evennia_message_bus_test_default?mode=memory&cache=shared"},
     },
-    "messagebus": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": ":memory:",
-        "TEST": {"NAME": "file:evennia_message_bus_test_bus?mode=memory&cache=shared"},
-    },
 }
 
-DATABASE_ROUTERS = ["evennia_message_bus.db_router.MessageBusRouter"]
+# The bus alias and its router come from the cascade, resolved from this
+# library's own db_spec — the suite exercises the real consumer path on
+# every run. The environment is {} rather than os.environ so the suite
+# always lands on the SQLite rung, whatever DATABASE_URLs the machine
+# carries.
+from evennia_database_cascade import configure  # noqa: E402
+
+DATABASES, DATABASE_ROUTERS = configure(DATABASES, INSTALLED_APPS, GAME_DIR, {})
+
+# The TEST names are not decoration. Two aliases both saying ":memory:" look
+# like one database to Django's test runner, which then treats the second as
+# a mirror of the first — so the router would appear to work while both
+# aliases pointed at the same physical database. Distinct shared-cache URIs
+# keep them genuinely separate. Re-applied here because configure() resolves
+# the alias to a real messagebus.db3 file, and the suite wants it in memory
+# like the game database.
+DATABASES["messagebus"]["NAME"] = ":memory:"
+DATABASES["messagebus"]["TEST"] = {
+    "NAME": "file:evennia_message_bus_test_bus?mode=memory&cache=shared"
+}
 
 # This instance's identity on the bus. Tests that need a different one use
 # override_settings.
