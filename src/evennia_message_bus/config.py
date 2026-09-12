@@ -32,6 +32,30 @@ SETTING_NAME = "MESSAGEBUS_INSTANCE_ID"
 #: entry, the router and the migration list from it.
 BUS_ALIAS = "messagebus"
 
+#: The public API, as ``name -> (module, attribute)``. The package's
+#: ``__getattr__`` resolves each entry on first use, because importing the
+#: package runs while Django is still building its app registry and eagerly
+#: importing anything that touches models would raise ``AppRegistryNotReady``.
+#: Plain data — nothing here imports the modules it names.
+LAZY_EXPORTS = {
+    "MessageType": ("evennia_message_bus.types", "MessageType"),
+    "Ping": ("evennia_message_bus.types", "Ping"),
+    "PingReceived": ("evennia_message_bus.types", "PingReceived"),
+    "UnknownKind": ("evennia_message_bus.types", "UnknownKind"),
+    "UndeliverableReply": ("evennia_message_bus.types", "UndeliverableReply"),
+    "register": ("evennia_message_bus.registry", "register"),
+    "get_type": ("evennia_message_bus.registry", "get_type"),
+    "registered_kinds": ("evennia_message_bus.registry", "registered_kinds"),
+    "start_message_bus": ("evennia_message_bus.bus", "start_message_bus"),
+    "process_inbox": ("evennia_message_bus.bus", "process_inbox"),
+    "poll": ("evennia_message_bus.bus", "poll"),
+    "get_instance_id": ("evennia_message_bus.config", "get_instance_id"),
+    "DEFAULT_TIMEOUT": ("evennia_message_bus.config", "DEFAULT_TIMEOUT"),
+    "BUS_ALIAS": ("evennia_message_bus.config", "BUS_ALIAS"),
+    "MessageBusError": ("evennia_message_bus.errors", "MessageBusError"),
+    "Message": ("evennia_message_bus.models", "Message"),
+}
+
 
 def _log_refusal(message: str) -> None:
     """Write a refusal to the log before its raise, at ERROR.

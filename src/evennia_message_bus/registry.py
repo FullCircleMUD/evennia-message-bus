@@ -16,7 +16,10 @@ register the subclass.
 from .errors import MessageBusError
 from .log import bus_log
 
-_REGISTRY: dict[str, type] = {}
+#: Mutable module state, not a constant — written by ``register`` and
+#: replaced wholesale by ``restore``. Lower-case for that reason: an
+#: upper-case name would promise a value nothing rebinds.
+_registry: dict[str, type] = {}
 
 
 def _refuse(message: str):
@@ -44,7 +47,7 @@ def register(cls):
             f"dispatches on."
         )
 
-    existing = _REGISTRY.get(kind)
+    existing = _registry.get(kind)
     if existing is not None and existing is not cls and not issubclass(cls, existing):
         _refuse(
             f"kind {kind!r} is already registered to {existing.__name__}, and "
@@ -52,26 +55,26 @@ def register(cls):
             f"cannot share a kind. To extend the registered one, subclass it "
             f"and register the subclass — that replaces it."
         )
-    _REGISTRY[kind] = cls
+    _registry[kind] = cls
     return cls
 
 
 def get_type(kind: str):
     """Return the type registered for ``kind``, or ``None``."""
-    return _REGISTRY.get(kind)
+    return _registry.get(kind)
 
 
 def registered_kinds() -> list[str]:
     """Every kind currently registered, sorted."""
-    return sorted(_REGISTRY)
+    return sorted(_registry)
 
 
 def snapshot() -> dict:
     """Copy the registry. Paired with ``restore`` for test isolation."""
-    return dict(_REGISTRY)
+    return dict(_registry)
 
 
 def restore(snap: dict) -> None:
     """Replace the registry's contents with a previous ``snapshot``."""
-    _REGISTRY.clear()
-    _REGISTRY.update(snap)
+    _registry.clear()
+    _registry.update(snap)
