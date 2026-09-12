@@ -29,6 +29,11 @@ Both declare their alias to `evennia-database-cascade` and neither ships a route
 Archive's second database is a schema clone of the game; this library's is a small table of its own.
 Separate aliases, no rows in common, neither reads the other's.
 
+## evennia-calendar
+
+**No coupling.** Neither imports the other. Calendar holds no state — every process derives the same
+date from the same clock — so there is nothing for it to send and nothing for it to receive.
+
 ## evennia-database-cascade
 
 **Hard dependency.** `db_spec.py` declares the bus alias to it — refusing the shared rung, because
@@ -36,6 +41,17 @@ the bus must be independent of any one instance's database — and the cascade d
 entry, the router and the migration list from that declaration. The library ships no router and no
 resolution code of its own, and does not run without the cascade: `pyproject.toml` declares it.
 Nothing flows the other way: the cascade knows nothing about the bus.
+
+## evennia-equipment
+
+**No coupling.** Neither imports the other. Equipment holds its state on one object in one instance
+and publishes nothing. A consumer moving an equipped character between instances moves it through the
+archive, not as a payload here — this library never reads inside one.
+
+## evennia-llm-service
+
+**No coupling.** Neither imports the other. The llm-service has neither persistence nor a loop, and
+holds nothing that would need to reach another instance.
 
 ## evennia-logging-extension
 
@@ -53,17 +69,49 @@ This library.
 to a spawned mob, so a despawn invalidates nothing. A consumer signalling about a mob across instances
 puts its own identifier in the payload — see the identity rule in [design.md](design.md).
 
+## evennia-portal-multiplex
+
+**No coupling.** Neither imports the other. Multiplex owns no tables and no alias; this library owns
+both.
+
+**Both name instances, and nothing checks the two names agree.** Multiplex reads
+`MULTIPLEX_INSTANCE_ID` and this library reads `MESSAGEBUS_INSTANCE_ID`. A consumer running both
+should alias one to the other rather than maintain two names for one thing; multiplex's
+`installing.md` carries the line. If they drift, a session is addressed by one name and routed by
+another, and the symptom is traffic arriving at the default instance while everything above believes
+it moved.
+
+**They also work at different speeds, by construction.** Multiplex hands a session over a live AMP
+link; a bus message crosses a database and waits for a polling interval. An arriving session can beat
+the message that describes it, and the consumer's handler has to tolerate that — the bus offers no
+ordering guarantee against anything outside itself.
+
+## evennia-scaling
+
+**Hard dependency, in the other direction.** Scaling depends on this library; this library knows
+nothing about scaling — nothing here imports it, and no shipped message type refers to a character
+move. Scaling
+carries its handoff between instances that share no game database, so the receiving instance learns
+about a transfer independently of the session about to arrive.
+
+**An instance is named once.** Scaling declares no id for the instance it runs on; it reads this
+library's `MESSAGEBUS_INSTANCE_ID`. What it declares is which *other* instances exist, and those names
+have to match the ids the bus routes by. Nothing can check that across instances, so a mismatch is a
+message addressed to a name nobody answers to — see principle 5 in [../CLAUDE.md](../CLAUDE.md):
+routing is an argument, never derived.
+
 ## evennia-shards
 
-**No coupling, and a deliberate overlap.** Neither imports the other, and this is not a shards
+**No coupling, and shards is deprecated.** Neither imports the other, and this is not a shards
 component — vanilla Evennia is the assumed case.
 
-Shards ships its own cross-shard bus, of which this library is a generalisation. A consumer running
-both has **two polling loops** in the Server process, against two tables in two databases. That works
-and is wasteful. Until it is decided whether one replaces the other, treat them as separate systems and
-do not route one through the other.
+**Use `evennia-scaling`, not shards.** Shards is retired from service and yanked from PyPI once
+scaling is implemented; nothing new should be built against it. Shards ships its own cross-shard bus,
+of which this library is a generalisation — a consumer running both has **two polling loops** in the
+Server process, against two tables in two databases, and the answer is to move off shards rather than
+to route one bus through the other.
 
-Neither of shards' recurring constraints reaches here:
+Neither of shards' recurring constraints reaches here, for as long as a consumer still runs it:
 
 - **Tenancy** is installed on `ObjectDB` only. This library's data is its own, on a separate alias — no
   `shard_id` column to scope, no auto-stamp to lose.
@@ -73,6 +121,11 @@ Neither of shards' recurring constraints reaches here:
 
 A sharded consumer sets `MESSAGEBUS_INSTANCE_ID = SHARD_ID`. The settings stay independent — this
 library never reads `SHARD_ID`, and shards never reads `MESSAGEBUS_INSTANCE_ID`.
+
+## evennia-survival
+
+**No coupling.** Neither imports the other. Hunger and thirst travel between instances as Attributes
+on the character, through the archive — nothing about them is ever a message.
 
 ## evennia-targeting
 
@@ -88,3 +141,26 @@ database; this library writes message rows in a different one and never touches 
 
 **No coupling.** Neither imports the other. Payloads are built by consumer code and stored as
 structured data on a row; nothing here parses YAML.
+
+## fcm-telemetry-spawn
+
+**No coupling today.** Neither imports the other, and nothing shipped here knows about spawning.
+
+Whether a spawn run is coordinated across instances is telemetry-spawn's question, not this
+library's, and it is open on that side. If the answer is yes, this library is the transport and
+telemetry-spawn declares its own message type — see principle 1 in [../CLAUDE.md](../CLAUDE.md): the
+bus does not own game concepts.
+
+## fcm-xrpl
+
+**No coupling.** Neither imports the other, and no shipped message type refers to an on-chain
+holding.
+
+**Both put a router in `DATABASE_ROUTERS`**, so a consumer running the pair has two. This library's
+is derived by `evennia-database-cascade` from its spec; fcm-xrpl ships its own `db_router.py`, which
+must return `None` for every app it does not own or it silently captures this library's queries.
+
+A character moving between instances carries its on-chain holdings, and the bus is what coordinates
+that move — but what crosses the bus is the consumer's identifier, resolved by the consumer at each
+end. `[TBD — needs discussion: whether fcm-xrpl has anything to say to the bus directly, or only to
+the archive the handoff triggers. Open on both sides.]`
