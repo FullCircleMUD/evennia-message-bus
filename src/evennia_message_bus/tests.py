@@ -344,7 +344,7 @@ class DatabaseSpecTest(PlainTestCase):
         source = inspect.getsource(db_spec)
         self.assertIn("from .config import", source)
         self.assertNotIn('alias="messagebus"', source)
-        self.assertEqual(db_spec.SPEC.app_label, "evennia_message_bus")
+        self.assertEqual(db_spec.SPEC.app_labels, ("evennia_message_bus",))
         self.assertEqual(db_spec.SPEC.alias, config.BUS_ALIAS)
 
     def test_the_spec_refuses_the_shared_rung(self):
@@ -358,6 +358,14 @@ class DatabaseSpecTest(PlainTestCase):
         from evennia_message_bus.db_spec import SPEC
 
         self.assertFalse(SPEC.allow_foreign_tables_in_own_db)
+
+    def test_the_spec_passes_the_cascade_validator(self):
+        """DS-05"""
+        from evennia_database_cascade import spec_is_valid
+
+        from evennia_message_bus.db_spec import SPEC
+
+        self.assertTrue(spec_is_valid(SPEC))
 
     def test_configure_resolves_and_routes_the_alias(self):
         """DS-04"""

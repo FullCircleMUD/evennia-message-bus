@@ -19,7 +19,7 @@ from evennia_database_cascade import AliasSpec
 from .config import BUS_ALIAS
 
 SPEC = AliasSpec(
-    app_label="evennia_message_bus",
+    app_labels="evennia_message_bus",
     alias=BUS_ALIAS,
     allow_sharing_common_db=False,
 )

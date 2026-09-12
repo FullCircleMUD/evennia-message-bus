@@ -129,10 +129,11 @@ cascade's suite's to cover; DS-04 proves discovery, resolution and routing end t
 
 | ID | Case | Test function |
 |---|---|---|
-| DS-01 | `SPEC.app_label` is `evennia_message_bus` and `SPEC.alias` is `config.BUS_ALIAS`, not a second literal | `DatabaseSpecTest.test_the_spec_names_the_config_alias` |
+| DS-01 | `SPEC.app_labels` is `("evennia_message_bus",)` and `SPEC.alias` is `config.BUS_ALIAS`, not a second literal | `DatabaseSpecTest.test_the_spec_names_the_config_alias` |
 | DS-02 | The spec refuses the shared rung — `allow_sharing_common_db` is `False` | `DatabaseSpecTest.test_the_spec_refuses_the_shared_rung` |
 | DS-03 | The spec refuses foreign tables in its own database — `allow_foreign_tables_in_own_db` is `False` | `DatabaseSpecTest.test_the_spec_refuses_foreign_tables` |
 | DS-04 | `configure()` with this library installed and an empty environment returns a `messagebus` entry on the SQLite rung and a router that sends `Message` to the alias — discovery, resolution and routing proven from this side of the contract | `DatabaseSpecTest.test_configure_resolves_and_routes_the_alias` |
+| DS-05 | The spec passes the cascade's own `spec_is_valid`. The contract check the cascade exports for its consumers: a shape rule tightened there goes red here, in this library's CI, rather than in a deployment | `DatabaseSpecTest.test_the_spec_passes_the_cascade_validator` |
 
 DS-02 is the library's position, not a table-collision constraint like `evennia-archive`'s. The bus is
 the transport *between* instances, so it must not live inside any one instance's database: a bus
